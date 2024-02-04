@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.6"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.0.7"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -375,10 +375,10 @@ namespace Oxide.Plugins
         public double KitCooldown(string name) => (double)GetKitCooldown(name);
 
         [HookMethod("PlayerKitMax")]
-        public double PlayerKitMax(ulong playerId, string name) => GetPlayerKitUses(playerId, name);
+        public int PlayerKitMax(ulong playerId, string name) => GetPlayerKitUses(playerId, name);
 
         [HookMethod("PlayerKitCooldown")]
-        public double PlayerKitCooldown(ulong playerId, string name) => (double)GetPlayerKitCooldown(playerId, name);
+        public double PlayerKitCooldown(ulong playerId, string name) => GetPlayerKitCooldown(playerId, name);
 
         [HookMethod("GetKitContents")]
         public string[] GetKitContents(string name)
@@ -520,10 +520,10 @@ namespace Oxide.Plugins
         public int GetKitCooldown(string name) => kitData[name]?.Cooldown ?? 0;
 
         [HookMethod("GetPlayerKitUses")]
-        public double GetPlayerKitUses(ulong playerId, string name) => playerData.Exists(playerId) ? playerData[playerId].GetCooldownRemaining(name) : 0;
+        public int GetPlayerKitUses(ulong playerId, string name) => playerData.Exists(playerId) ? playerData[playerId].GetKitUses(name) : 0;
 
         [HookMethod("GetPlayerKitCooldown")]
-        public int GetPlayerKitCooldown(ulong playerId, string name) => playerData.Exists(playerId) ? playerData[playerId].GetKitUses(name) : 0;
+        public double GetPlayerKitCooldown(ulong playerId, string name) => playerData.Exists(playerId) ? playerData[playerId].GetCooldownRemaining(name) : 0; 
 
         [HookMethod("GetKitObject")]
         public JObject GetKitObject(string name)
