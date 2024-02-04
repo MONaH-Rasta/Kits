@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.16"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.1.0"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -584,6 +584,17 @@ namespace Oxide.Plugins
                 return null;
 
             return kit.ToJObject;
+        }
+
+        [HookMethod("CreateKitItems")]
+        public IEnumerable<Item> CreateKitItems(string name)
+        {
+            KitData.Kit kit;
+            if (!kitData.Find(name, out kit))
+                yield break;
+
+            foreach (var item in kit.CreateItems())
+                yield return item;
         }
         #endregion
 
@@ -2990,6 +3001,36 @@ namespace Oxide.Plugins
                     }
 
                     Facepunch.Pool.FreeList(ref list);
+                }
+
+                internal IEnumerable<Item> CreateItems()
+                {
+                    for (int i = 0; i < MainItems.Length; i++)
+                    {
+                        ItemData itemData = MainItems[i];
+                        if (itemData.Amount < 1)
+                            continue;
+
+                        yield return CreateItem(itemData);
+                    }
+
+                    for (int i = 0; i < WearItems.Length; i++)
+                    {
+                        ItemData itemData = WearItems[i];
+                        if (itemData.Amount < 1)
+                            continue;
+
+                        yield return CreateItem(itemData);
+                    }
+
+                    for (int i = 0; i < BeltItems.Length; i++)
+                    {
+                        ItemData itemData = BeltItems[i];
+                        if (itemData.Amount < 1)
+                            continue;
+
+                        yield return CreateItem(itemData);
+                    }
                 }
 
                 private void GiveItems(ItemData[] items, ItemContainer container, ref List<ItemData> leftOverItems, bool isWearContainer = false)
