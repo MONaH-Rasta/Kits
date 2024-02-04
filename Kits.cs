@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.13"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.0.14"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -562,7 +562,14 @@ namespace Oxide.Plugins
         }
 
         [HookMethod("GetPlayerKitCooldown")]
-        public double GetPlayerKitCooldown(ulong playerId, string name) => playerData.Exists(playerId) ? playerData[playerId].GetCooldownRemaining(name) : 0; 
+        public double GetPlayerKitCooldown(ulong playerId, string name) => playerData.Exists(playerId) ? playerData[playerId].GetCooldownRemaining(name) : 0;
+
+        [HookMethod("SetPlayerKitCooldown")]
+        public void SetPlayerCooldown(ulong playerId, string name, double seconds)
+        {
+            if (playerData.Exists(playerId))
+                playerData[playerId].SetCooldownRemaining(name, seconds);
+        }
 
         [HookMethod("GetKitObject")]
         public JObject GetKitObject(string name)
@@ -3140,6 +3147,15 @@ namespace Oxide.Plugins
                     double currentTime = CurrentTime;
 
                     return currentTime > kitUsageData.NextUseTime ? 0 : kitUsageData.NextUseTime - CurrentTime;
+                }
+
+                internal void SetCooldownRemaining(string name, double seconds)
+                {
+                    KitUsageData kitUsageData;
+                    if (!_usageData.TryGetValue(name, out kitUsageData))
+                        return;
+
+                    kitUsageData.NextUseTime = CurrentTime + seconds;
                 }
 
                 internal int GetKitUses(string name)
