@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.14"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.0.15"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -269,7 +269,12 @@ namespace Oxide.Plugins
                     }
                     return false;
                 case CostType.ServerRewards:
-                    return (bool)ServerRewards?.Call("TakePoints", player.userID, amount);
+                    {
+                        if ((ServerRewards?.Call<int>("CheckPoints", player.UserIDString) ?? 0) < amount)
+                            return false;
+
+                        return (bool)ServerRewards?.Call("TakePoints", player.userID, amount);
+                    }
                 case CostType.Economics:
                     return (bool)Economics?.Call("Withdraw", player.UserIDString, (double)amount);
             }
@@ -870,10 +875,10 @@ namespace Oxide.Plugins
 
                 UI4 position = alignment.Get(itemData.Position);
 
-                UI.Image(container, UI_MENU, GetImage(itemData.Shortname, itemData.Skin), position);
+                UI.Image(container, UI_MENU, itemData.ItemID, itemData.Skin /*GetImage(itemData.Shortname, itemData.Skin)*/, position);
 
                 if (itemData.IsBlueprint && !string.IsNullOrEmpty(itemData.BlueprintShortname))
-                    UI.Image(container, UI_MENU, GetImage(itemData.BlueprintShortname, 0UL), position);
+                    UI.Image(container, UI_MENU, itemData.BlueprintItemID, 0UL /*GetImage(itemData.BlueprintShortname, 0UL)*/, position);
 
                 if (itemData.Amount > 1)
                     UI.Label(container, UI_MENU, $"x{itemData.Amount}", 10, position, TextAnchor.LowerRight);
@@ -1497,6 +1502,20 @@ namespace Oxide.Plugins
                     Components =
                     {
                         new CuiRawImageComponent {Png = png },
+                        new CuiRectTransformComponent { AnchorMin = dimensions.GetMin(), AnchorMax = dimensions.GetMax() }
+                    }
+                });
+            }
+
+            public static void Image(CuiElementContainer container, string panel, int itemId, ulong skinId, UI4 dimensions)
+            {
+                container.Add(new CuiElement
+                {
+                    Name = CuiHelper.GetGuid(),
+                    Parent = panel,
+                    Components =
+                    {
+                        new CuiImageComponent { ItemId = itemId, SkinId = skinId },
                         new CuiRectTransformComponent { AnchorMin = dimensions.GetMin(), AnchorMax = dimensions.GetMax() }
                     }
                 });
@@ -2778,7 +2797,7 @@ namespace Oxide.Plugins
 
             internal void RegisterImages(Plugin plugin)
             {
-                List<KeyValuePair<string, ulong>> itemIcons = new List<KeyValuePair<string, ulong>>();
+                //List<KeyValuePair<string, ulong>> itemIcons = new List<KeyValuePair<string, ulong>>();
 
                 Dictionary<string, string> loadOrder = new Dictionary<string, string>
                 {
@@ -2786,41 +2805,41 @@ namespace Oxide.Plugins
                     [MAGNIFY_ICON] = Configuration.Menu.MagnifyIconURL
                 };
 
-                foreach (Kit kit in _kits.Values)
-                {
-                    if (!string.IsNullOrEmpty(kit.KitImage))
-                        loadOrder.Add(kit.Name.Replace(" ", ""), kit.KitImage);
+                //foreach (Kit kit in _kits.Values)
+                //{
+                //    if (!string.IsNullOrEmpty(kit.KitImage))
+                //        loadOrder.Add(kit.Name.Replace(" ", ""), kit.KitImage);
 
-                    for (int i = 0; i < kit.MainItems.Length; i++)
-                    {
-                        ItemData itemData = kit.MainItems[i];
-                        itemIcons.Add(new KeyValuePair<string, ulong>(itemData.Shortname, itemData.Skin));
+                //    for (int i = 0; i < kit.MainItems.Length; i++)
+                //    {
+                //        ItemData itemData = kit.MainItems[i];
+                //        itemIcons.Add(new KeyValuePair<string, ulong>(itemData.Shortname, itemData.Skin));
 
-                        if (itemData.IsBlueprint)
-                            itemIcons.Add(new KeyValuePair<string, ulong>(itemData.BlueprintShortname, 0UL));
-                    }
+                //        if (itemData.IsBlueprint)
+                //            itemIcons.Add(new KeyValuePair<string, ulong>(itemData.BlueprintShortname, 0UL));
+                //    }
 
-                    for (int i = 0; i < kit.BeltItems.Length; i++)
-                    {
-                        ItemData itemData = kit.BeltItems[i];
-                        itemIcons.Add(new KeyValuePair<string, ulong>(itemData.Shortname, itemData.Skin));
+                //    for (int i = 0; i < kit.BeltItems.Length; i++)
+                //    {
+                //        ItemData itemData = kit.BeltItems[i];
+                //        itemIcons.Add(new KeyValuePair<string, ulong>(itemData.Shortname, itemData.Skin));
 
-                        if (itemData.IsBlueprint)
-                            itemIcons.Add(new KeyValuePair<string, ulong>(itemData.BlueprintShortname, 0UL));
-                    }
+                //        if (itemData.IsBlueprint)
+                //            itemIcons.Add(new KeyValuePair<string, ulong>(itemData.BlueprintShortname, 0UL));
+                //    }
 
-                    for (int i = 0; i < kit.WearItems.Length; i++)
-                    {
-                        ItemData itemData = kit.WearItems[i];
-                        itemIcons.Add(new KeyValuePair<string, ulong>(itemData.Shortname, itemData.Skin));
+                //    for (int i = 0; i < kit.WearItems.Length; i++)
+                //    {
+                //        ItemData itemData = kit.WearItems[i];
+                //        itemIcons.Add(new KeyValuePair<string, ulong>(itemData.Shortname, itemData.Skin));
 
-                        if (itemData.IsBlueprint)
-                            itemIcons.Add(new KeyValuePair<string, ulong>(itemData.BlueprintShortname, 0UL));
-                    }
-                }
+                //        if (itemData.IsBlueprint)
+                //            itemIcons.Add(new KeyValuePair<string, ulong>(itemData.BlueprintShortname, 0UL));
+                //    }
+                //}
 
-                if (itemIcons.Count > 0)
-                    plugin?.Call("LoadImageList", "Kits", itemIcons, null);
+                //if (itemIcons.Count > 0)
+                //    plugin?.Call("LoadImageList", "Kits", itemIcons, null);
 
                 plugin?.CallHook("ImportImageList", "Kits", loadOrder, 0UL, true, null);
             }
