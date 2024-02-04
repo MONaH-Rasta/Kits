@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Oxide.Core;
 using Oxide.Core.Configuration;
@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.15"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.0.16"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -2805,10 +2805,10 @@ namespace Oxide.Plugins
                     [MAGNIFY_ICON] = Configuration.Menu.MagnifyIconURL
                 };
 
-                //foreach (Kit kit in _kits.Values)
-                //{
-                //    if (!string.IsNullOrEmpty(kit.KitImage))
-                //        loadOrder.Add(kit.Name.Replace(" ", ""), kit.KitImage);
+                foreach (Kit kit in _kits.Values)
+                {
+                    if (!string.IsNullOrEmpty(kit.KitImage))
+                        loadOrder.Add(kit.Name.Replace(" ", ""), kit.KitImage);
 
                 //    for (int i = 0; i < kit.MainItems.Length; i++)
                 //    {
@@ -2836,7 +2836,7 @@ namespace Oxide.Plugins
                 //        if (itemData.IsBlueprint)
                 //            itemIcons.Add(new KeyValuePair<string, ulong>(itemData.BlueprintShortname, 0UL));
                 //    }
-                //}
+                }
 
                 //if (itemIcons.Count > 0)
                 //    plugin?.Call("LoadImageList", "Kits", itemIcons, null);
