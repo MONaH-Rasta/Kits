@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.9"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.0.10"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -92,6 +92,20 @@ namespace Oxide.Plugins
                 return;
             }
         }
+
+        private object OnServerCommand(ConsoleSystem.Arg arg)
+        {
+            BasePlayer player = arg.Player();
+            if (player == null)
+                return null;
+
+            if (_kitCreators.ContainsKey(player.userID) && !arg.cmd.FullName.StartsWith("kits."))
+                return false;
+
+            return null;
+        }
+
+        private object OnPlayerCommand(BasePlayer player, string s, string[] args) => _kitCreators.ContainsKey(player.userID) ? (object)false : null;
 
         private void Unload()
         {
@@ -1642,6 +1656,18 @@ namespace Oxide.Plugins
                     player.ChatMessage(string.Format(Message("Chat.KitGiven", player.userID), npc.displayName, args[1]));
                     return;
 
+                case "reset":
+                    if (!isAdmin)
+                    {
+                        player.ChatMessage(Message("Chat.Error.NotAdmin", player.userID));
+                        return;
+                    }
+
+                    playerData.Wipe();
+                    player.ChatMessage(Message("Chat.ResetPlayers", player.userID));
+
+                    return;
+
                 case "autokit":
                     if (Configuration.AllowAutoToggle)
                     {
@@ -1681,6 +1707,7 @@ namespace Oxide.Plugins
                 player.ChatMessage(Message("Chat.Help.6", player.userID));
                 player.ChatMessage(Message("Chat.Help.7", player.userID));
                 player.ChatMessage(Message("Chat.Help.8", player.userID));
+                player.ChatMessage(Message("Chat.Help.10", player.userID));
             }
         }
         #endregion
@@ -2786,22 +2813,21 @@ namespace Oxide.Plugins
                     List<ItemData> list = Facepunch.Pool.GetList<ItemData>();
 
                     GiveItems(MainItems, player.inventory.containerMain, ref list);
-                    GiveItems(WearItems, player.inventory.containerWear, ref list);
+                    GiveItems(WearItems, player.inventory.containerWear, ref list, true);
                     GiveItems(BeltItems, player.inventory.containerBelt, ref list);
 
                     for (int i = 0; i < list.Count; i++)
                     {
                         Item item = CreateItem(list[i]);
 
-                        if (!MoveToIdealContainer(player.inventory, item) && !item.MoveToContainer(player.inventory.containerMain, -1, true) && !item.MoveToContainer(player.inventory.containerBelt, -1, true))
-                        
+                        if (!MoveToIdealContainer(player.inventory, item) && !item.MoveToContainer(player.inventory.containerMain, -1, true) && !item.MoveToContainer(player.inventory.containerBelt, -1, true))                        
                             item.Drop(player.GetDropPosition(), player.GetDropVelocity());                                                
                     }
 
                     Facepunch.Pool.FreeList(ref list);
                 }
 
-                private void GiveItems(ItemData[] items, ItemContainer container, ref List<ItemData> leftOverItems)
+                private void GiveItems(ItemData[] items, ItemContainer container, ref List<ItemData> leftOverItems, bool isWearContainer = false)
                 {
                     for (int i = 0; i < items.Length; i++)
                     {
@@ -2814,17 +2840,25 @@ namespace Oxide.Plugins
                         else
                         {
                             Item item = CreateItem(itemData);
-                            item.position = itemData.Position;
-                            item.SetParent(container);
+                            if (!isWearContainer || (isWearContainer && item.info.isWearable && CanWearItem(container, item)))
+                            {
+                                item.position = itemData.Position;
+                                item.SetParent(container);
+                            }
+                            else
+                            {
+                                leftOverItems.Add(itemData);
+                                item.Remove(0f);
+                            }
                         }
                     }
                 }
 
                 private bool MoveToIdealContainer(PlayerInventory playerInventory, Item item)
                 {
-                    if (item.info.isWearable)                    
-                        return item.MoveToContainer(playerInventory.containerWear, -1, false);                    
-
+                    if (item.info.isWearable && CanWearItem(playerInventory.containerWear, item))                    
+                        return item.MoveToContainer(playerInventory.containerWear, -1, false);
+                    
                     if (item.info.stackable > 1)
                     {
                         if (playerInventory.containerBelt != null && playerInventory.containerBelt.FindItemByItemID(item.info.itemid) != null)                        
@@ -2839,6 +2873,26 @@ namespace Oxide.Plugins
                         return item.MoveToContainer(playerInventory.containerMain, -1, true);                    
 
                     return item.MoveToContainer(playerInventory.containerBelt, -1, false); 
+                }
+
+                private bool CanWearItem(ItemContainer containerWear, Item item)
+                {
+                    ItemModWearable itemModWearable = item.info.GetComponent<ItemModWearable>();
+                    if (itemModWearable == null)                  
+                        return false;
+                    
+                    for (int i = 0; i < containerWear.itemList.Count; i++)
+                    {
+                        Item otherItem = containerWear.itemList[i];
+                        if (otherItem != null)
+                        {
+                            ItemModWearable otherModWearable = otherItem.info.GetComponent<ItemModWearable>();                          
+                            if (otherModWearable != null && !itemModWearable.CanExistWith(otherModWearable))
+                                return false;
+                        }
+                    }
+
+                    return true;
                 }
                                 
                 internal void CopyItemsFrom(BasePlayer player)
@@ -3235,6 +3289,8 @@ namespace Oxide.Plugins
             ["Chat.Help.6"] = "<color=#ce422b>/kit list</color> - List all kits",
             ["Chat.Help.7"] = "<color=#ce422b>/kit give <player name or ID> <kit name></color> - Give the target player the specified kit",
             ["Chat.Help.8"] = "<color=#ce422b>/kit givenpc <kit name></color> - Give the NPC you are looking at the specified kit",
+            ["Chat.Help.10"] = "<color=#ce422b>/kit reset</color> - Wipe's all player usage data",
+
             ["Chat.Error.NotAdmin"] = "You must either be a admin, or have the admin permission to use that command",
             ["Chat.Error.NoKit"] = "You must specify a kit name",
             ["Chat.Error.DoesntExist"] = "The kit <color=#ce422b>{0}</color> does not exist",
@@ -3246,6 +3302,7 @@ namespace Oxide.Plugins
             ["Chat.KitDeleted"] = "You have deleted the kit <color=#ce422b>{0}</color>",
             ["Chat.KitGiven"] = "You have given <color=#ce422b>{0}</color> the kit <color=#ce422b>{1}</color>",
             ["Chat.AutoKit.Toggle"] = "Auto-kits have been <color=#ce422b>{0}</color>",
+            ["Chat.ResetPlayers"] = "You have wiped player usage data",
             ["Chat.AutoKit.True"] = "enabled",
             ["Chat.AutoKit.False"] = "disabled",
 
