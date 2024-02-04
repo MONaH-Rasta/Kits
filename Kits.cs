@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.11"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.0.12"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -39,6 +39,9 @@ namespace Oxide.Plugins
             kitData.RegisterPermissions(permission, this);
 
             _costType = ParseType<CostType>(Configuration.Currency);
+
+            cmd.AddChatCommand(Configuration.Command, this, cmdKit);
+            cmd.AddConsoleCommand(Configuration.Command, this, "ccmdKit");
         }
 
         protected override void LoadDefaultMessages() => lang.RegisterMessages(Messages, this);
@@ -46,6 +49,9 @@ namespace Oxide.Plugins
         private void OnServerInitialized()
         {
             kitData.RegisterImages(ImageLibrary);
+
+            if (Configuration.AutoKits.Count == 0)
+                Unsubscribe(nameof(OnPlayerRespawned));
         }
 
         private void OnNewSave(string filename)
@@ -358,11 +364,11 @@ namespace Oxide.Plugins
             return raycastHit.collider.GetComponentInParent<BasePlayer>();            
         }
 
-        private static DateTime Epoch { get; set; } = new DateTime(1970, 1, 1, 0, 0, 0);
+        private static DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0);
 
         private static double CurrentTime => DateTime.UtcNow.Subtract(Epoch).TotalSeconds;
 
-        private static double LastWipeTime { get; set; } = SaveRestore.SaveCreatedTime.Subtract(Epoch).TotalSeconds;
+        private static double LastWipeTime => SaveRestore.SaveCreatedTime.Subtract(Epoch).TotalSeconds;
         #endregion
 
         #region ImageLibrary        
@@ -581,7 +587,7 @@ namespace Oxide.Plugins
             if (IsAdmin(player) && npcId == 0UL)            
                 UI.Button(container, UI_MENU, Configuration.Menu.Color2.Get, Message("UI.CreateNew", player.userID), 14, new UI4(0.85f, 0.9375f, 0.9525f, 0.9825f), "kits.create");
             
-            CreateGridView(player, container, page);
+            CreateGridView(player, container, page, npcId);
 
             CuiHelper.DestroyUi(player, UI_MENU);
             CuiHelper.AddUi(player, container);
@@ -1551,8 +1557,7 @@ namespace Oxide.Plugins
         }
         #endregion
                 
-        #region Chat Commands
-        [ChatCommand("kit")]
+        #region Chat Commands       
         private void cmdKit(BasePlayer player, string command, string[] args)
         {
             if (args.Length == 0)
@@ -1671,14 +1676,14 @@ namespace Oxide.Plugins
                     }
 
                     KitData.Kit giveKit;
-                    if (!kitData.Find(args[1], out giveKit))
+                    if (!kitData.Find(args[2], out giveKit))
                     {
                         player.ChatMessage(Message("Chat.Error.DoesntExist", player.userID));
                         return;
                     }
 
                     GiveKit(target, giveKit);
-                    player.ChatMessage(string.Format(Message("Chat.KitGiven", player.userID), target.displayName, args[1]));
+                    player.ChatMessage(string.Format(Message("Chat.KitGiven", player.userID), target.displayName, args[2]));
                     return;
 
                 case "givenpc":
@@ -1745,6 +1750,85 @@ namespace Oxide.Plugins
                     if (TryClaimKit(player, args[0], false))
                         player.ChatMessage(string.Format(Message("Notification.KitReceived", player.userID), args[0]));
 
+                    break;
+            }
+        }
+
+        private void ccmdKit(ConsoleSystem.Arg arg)
+        {
+            BasePlayer player = arg.Connection?.player as BasePlayer;
+            if (player != null && !IsAdmin(player))
+                return;
+
+            if (arg.Args == null || arg.Args.Length == 0)
+            {
+                SendReply(arg, "kit list - List all kits");
+                SendReply(arg, "kit delete <kitname> - Delete the specified kit");
+                SendReply(arg, "kit give <playername> <kitname> - Give the specified kit to the specified playuer");
+                SendReply(arg, "kit reset - Reset player usage data");
+                return;
+            }
+
+            switch (arg.Args[0].ToLower())
+            {               
+                case "list":
+                    SendReply(arg, string.Format("Kit List: {0}", kitData.Keys.ToSentence()));
+                    return;
+
+                case "remove":
+                case "delete":                    
+                    if (arg.Args.Length != 2)
+                    {
+                        SendReply(arg, "You must specify a kit name");
+                        return;
+                    }
+
+                    KitData.Kit deleteKit;
+                    if (!kitData.Find(arg.Args[1], out deleteKit))
+                    {
+                        SendReply(arg, string.Format("The kit {0} does not exist", arg.Args[1]));
+                        return;
+                    }
+
+                    kitData.Remove(deleteKit);
+                    SaveKitData();
+                    SendReply(arg, string.Format("You have deleted the kit {0}", arg.Args[1]));
+
+                    return;
+
+                case "give":                   
+                    if (arg.Args.Length != 3)
+                    {
+                        SendReply(arg, "You must specify target player and a kit name");
+                        return;
+                    }
+
+                    BasePlayer target = FindPlayer(arg.Args[1]);
+                    if (target == null)
+                    {
+                        SendReply(arg, "Failed to find a player with the specified name or ID");
+                        return;
+                    }
+
+                    KitData.Kit giveKit;
+                    if (!kitData.Find(arg.Args[2], out giveKit))
+                    {
+                        SendReply(arg, "The kit {0} does not exist");
+                        return;
+                    }
+
+                    GiveKit(target, giveKit);
+                    SendReply(arg, string.Format("You have given {0} the kit {1}", target.displayName, arg.Args[2]));
+                    return;
+                
+                case "reset":                    
+                    playerData.Wipe();
+                    SavePlayerData();
+                    SendReply(arg, "You have wiped player usage data");
+                    return;
+                
+                default:
+                    SendReply(arg, "Invalid syntax");
                     break;
             }
         }
@@ -2402,6 +2486,9 @@ namespace Oxide.Plugins
 
         private class ConfigData
         {
+            [JsonProperty(PropertyName = "Kit chat command")]
+            public string Command { get; set; }
+
             [JsonProperty(PropertyName = "Currency used for purchase costs (Scrap, Economics, ServerRewards)")]
             public string Currency { get; set; }
 
@@ -2514,6 +2601,7 @@ namespace Oxide.Plugins
         {
             return new ConfigData
             {
+                Command = "kit",                
                 Currency = "Scrap",
                 LogKitsGiven = false,
                 WipeData = false,
@@ -2583,6 +2671,9 @@ namespace Oxide.Plugins
                 Configuration.UseUI = true;
                 Configuration.NPCKitMenu = baseConfig.NPCKitMenu;
             }
+
+            if (Configuration.Version < new VersionNumber(4, 0, 12))
+                Configuration.Command = baseConfig.Command;
 
             Configuration.Version = Version;
             PrintWarning("Config update completed!");
