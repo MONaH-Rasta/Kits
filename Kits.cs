@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.12"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.0.13"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -48,6 +48,8 @@ namespace Oxide.Plugins
 
         private void OnServerInitialized()
         {
+            LastWipeTime = SaveRestore.SaveCreatedTime.Subtract(Epoch).TotalSeconds;
+
             kitData.RegisterImages(ImageLibrary);
 
             if (Configuration.AutoKits.Count == 0)
@@ -179,7 +181,7 @@ namespace Oxide.Plugins
 
                 return null;
             }
-            
+
             if (!string.IsNullOrEmpty(kit.RequiredPermission) && !permission.UserHasPermission(player.UserIDString, kit.RequiredPermission))
                 return Message("Error.CanClaim.Permission", player.userID);
 
@@ -366,9 +368,9 @@ namespace Oxide.Plugins
 
         private static DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0);
 
-        private static double CurrentTime => DateTime.UtcNow.Subtract(Epoch).TotalSeconds;
+        private static double LastWipeTime;
 
-        private static double LastWipeTime => SaveRestore.SaveCreatedTime.Subtract(Epoch).TotalSeconds;
+        private static double CurrentTime => DateTime.UtcNow.Subtract(Epoch).TotalSeconds;
         #endregion
 
         #region ImageLibrary        
@@ -552,6 +554,13 @@ namespace Oxide.Plugins
         [HookMethod("GetPlayerKitUses")]
         public int GetPlayerKitUses(ulong playerId, string name) => playerData.Exists(playerId) ? playerData[playerId].GetKitUses(name) : 0;
 
+        [HookMethod("SetPlayerKitUses")]
+        public void SetPlayerKitUses(ulong playerId, string name, int amount)
+        {
+            if (playerData.Exists(playerId))
+                playerData[playerId].SetKitUses(name, amount);
+        }
+
         [HookMethod("GetPlayerKitCooldown")]
         public double GetPlayerKitCooldown(ulong playerId, string name) => playerData.Exists(playerId) ? playerData[playerId].GetCooldownRemaining(name) : 0; 
 
@@ -576,7 +585,7 @@ namespace Oxide.Plugins
         #region Kit Grid View
         private void OpenKitGrid(BasePlayer player, int page = 0, ulong npcId = 0UL)
         {
-            CuiElementContainer container = UI.BlurContainer(UI_MENU, new UI4(0.2f, 0.15f, 0.8f, 0.85f));
+            CuiElementContainer container = UI.Container(UI_MENU, "0 0 0 0.9", new UI4(0.2f, 0.15f, 0.8f, 0.85f), true, "Hud");
 
             UI.Panel(container, UI_MENU, Configuration.Menu.Panel.Get, new UI4(0.005f, 0.93f, 0.995f, 0.99f));
 
@@ -690,7 +699,7 @@ namespace Oxide.Plugins
             UI.Button(container, UI_MENU, buttonColor, buttonText, 14, 
                 new UI4(position.xMin + 0.038f, position.yMin + 0.0075f, position.xMax - 0.005f, position.yMin + 0.0475f), buttonCommand);
 
-            UI.ImageButton(container, UI_MENU, ICON_BACKGROUND_COLOR, GetImage(MAGNIFY_ICON), 
+            UI.Button(container, UI_MENU, ICON_BACKGROUND_COLOR, GetImage(MAGNIFY_ICON), 
                 new UI4(position.xMin + 0.005f, position.yMin + 0.0075f, position.xMin + 0.033f, position.yMin + 0.0475f), $"kits.gridview inspect {CommandSafe(kit.Name)} {page} {npcId}");
         }
         #endregion
@@ -705,7 +714,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            CuiElementContainer container = UI.BlurContainer(UI_MENU, new UI4(0.2f, 0.15f, 0.8f, 0.85f));
+            CuiElementContainer container = UI.Container(UI_MENU, "0 0 0 0.9", new UI4(0.2f, 0.15f, 0.8f, 0.85f), true, "Hud");
 
             UI.Panel(container, UI_MENU, Configuration.Menu.Panel.Get, new UI4(0.005f, 0.93f, 0.995f, 0.99f));
 
@@ -873,7 +882,7 @@ namespace Oxide.Plugins
             if (!_kitCreators.TryGetValue(player.userID, out kit))
                 return;
 
-            CuiElementContainer container = UI.BlurContainer(UI_MENU, new UI4(0.2f, 0.15f, 0.8f, 0.85f));
+            CuiElementContainer container = UI.Container(UI_MENU, "0 0 0 0.9", new UI4(0.2f, 0.15f, 0.8f, 0.85f), true, "Hud");
 
             UI.Panel(container, UI_MENU, Configuration.Menu.Panel.Get, new UI4(0.005f, 0.93f, 0.995f, 0.99f));
 
@@ -1385,47 +1394,29 @@ namespace Oxide.Plugins
         #region UI Helper
         public static class UI
         {
-            public static CuiElementContainer Container(string panelName, string color, UI4 dimensions, string parent = "Overlay")
+            public static CuiElementContainer Container(string panel, string color, UI4 dimensions, bool blur = true, string parent = "Overlay")
             {
                 CuiElementContainer container = new CuiElementContainer()
                 {
                     {
                         new CuiPanel
                         {
-                            Image = { Color = color, Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat" },
+                            Image = { Color = color, Material = blur ? "assets/content/ui/uibackgroundblur-ingamemenu.mat" : string.Empty },
                             RectTransform = { AnchorMin = dimensions.GetMin(), AnchorMax = dimensions.GetMax() },
                             CursorEnabled = true
                         },
                         new CuiElement().Parent = parent,
-                        panelName
+                        panel
                     }
                 };
                 return container;
             }
 
-            public static CuiElementContainer BlurContainer(string panelName, UI4 dimensions, string color = "0 0 0 0.9")
+            public static CuiElementContainer Popup(string panel, string text, int size, UI4 dimensions, TextAnchor align = TextAnchor.MiddleCenter, string parent = "Overlay")
             {
-                CuiElementContainer container = new CuiElementContainer()
-                {
-                    {
-                        new CuiPanel
-                        {
-                            Image = {Color = color, Material = "assets/content/ui/uibackgroundblur-ingamemenu.mat"},
-                            RectTransform = {AnchorMin = dimensions.GetMin(), AnchorMax = dimensions.GetMax()},
-                            CursorEnabled = true
-                        },
-                        new CuiElement().Parent = "Hud",
-                        panelName.ToString()
-                    }
-                };
-                return container;
-            }
+                CuiElementContainer container = UI.Container(panel, "0 0 0 0", dimensions);
 
-            public static CuiElementContainer Popup(string panelName, string text, int size, UI4 dimensions, TextAnchor align = TextAnchor.MiddleCenter, string parent = "Overlay")
-            {
-                CuiElementContainer container = UI.Container(panelName, "0 0 0 0", dimensions);
-
-                UI.Label(container, panelName, text, size, UI4.Full, align);
+                UI.Label(container, panel, text, size, UI4.Full, align);
 
                 return container;
             }
@@ -1461,7 +1452,7 @@ namespace Oxide.Plugins
                 panel);
             }
 
-            public static void ImageButton(CuiElementContainer container, string panel, string color, string png, UI4 dimensions, string command)
+            public static void Button(CuiElementContainer container, string panel, string color, string png, UI4 dimensions, string command)
             {
                 UI.Panel(container, panel, color, dimensions);
                 UI.Image(container, panel, png, dimensions);
@@ -3158,6 +3149,15 @@ namespace Oxide.Plugins
                         return 0;
 
                     return kitUsageData.TotalUses;
+                }
+
+                internal void SetKitUses(string name, int amount)
+                {
+                    KitUsageData kitUsageData;
+                    if (!_usageData.TryGetValue(name, out kitUsageData))
+                        return;
+
+                    kitUsageData.TotalUses = amount;
                 }
 
                 internal void OnKitClaimed(KitData.Kit kit)
