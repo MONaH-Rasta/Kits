@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.3.0"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.4.0"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -572,6 +572,16 @@ namespace Oxide.Plugins
                 return null;
 
             return kit.ToJObject;
+        }
+        
+        [HookMethod("CreateKitItems")]
+        public IEnumerable<Item> CreateKitItems(string name)
+        {
+            KitData.Kit kit;
+            if (!kitData.Find(name, out kit))
+                yield break;
+            foreach (var item in kit.CreateItems())
+                yield return item;
         }
         #endregion
 
@@ -2999,6 +3009,30 @@ namespace Oxide.Plugins
                         }
                     }
                 }
+                
+                internal IEnumerable<Item> CreateItems()
+                {
+                    for (int i = 0; i < MainItems.Length; i++)
+                    {
+                        ItemData itemData = MainItems[i];
+                        if (itemData.Amount > 0)
+                            yield return CreateItem(itemData);
+                    }
+                    
+                    for (int i = 0; i < WearItems.Length; i++)
+                    {
+                        ItemData itemData = WearItems[i];
+                        if (itemData.Amount > 0)
+                            yield return CreateItem(itemData);
+                    }
+                    
+                    for (int i = 0; i < BeltItems.Length; i++)
+                    {
+                        ItemData itemData = BeltItems[i];
+                        if (itemData.Amount > 0)
+                            yield return CreateItem(itemData);
+                    }
+                }
 
                 private bool MoveToIdealContainer(PlayerInventory playerInventory, Item item)
                 {
@@ -3244,14 +3278,6 @@ namespace Oxide.Plugins
                 item.MarkDirty();
             }
 
-            BaseProjectile weapon = item.GetHeldEntity() as BaseProjectile;
-            if (weapon != null)
-            {
-                if (!string.IsNullOrEmpty(itemData.Ammotype))
-                    weapon.primaryMagazine.ammoType = ItemManager.FindItemDefinition(itemData.Ammotype);
-                weapon.primaryMagazine.contents = itemData.Ammo;
-            }
-
             FlameThrower flameThrower = item.GetHeldEntity() as FlameThrower;
             if (flameThrower != null)
                 flameThrower.ammo = itemData.Ammo;
@@ -3260,14 +3286,25 @@ namespace Oxide.Plugins
             {
                 foreach (ItemData contentData in itemData.Contents)
                 {
-                    Item newContent = ItemManager.CreateByItemID(contentData.ItemID, contentData.Amount);
+                    Item newContent = CreateItem(contentData);
                     if (newContent != null)
                     {
-                        newContent.condition = contentData.Condition;
-                        newContent.MoveToContainer(item.contents);
+                        if (!newContent.MoveToContainer(item.contents))
+                            newContent.Remove(0f);
                     }
                 }
             }
+            
+            BaseProjectile weapon = item.GetHeldEntity() as BaseProjectile;
+            if (weapon != null)
+            {
+                weapon.DelayedModsChanged();
+                
+                if (!string.IsNullOrEmpty(itemData.Ammotype))
+                    weapon.primaryMagazine.ammoType = ItemManager.FindItemDefinition(itemData.Ammotype);
+                weapon.primaryMagazine.contents = itemData.Ammo;
+            }
+
 
             item.MarkDirty();
 
@@ -3376,10 +3413,14 @@ namespace Oxide.Plugins
                 Amount = item.amount;
                 DisplayName = item.name;
                 Text = item.text;
-                
-                Ammotype = (item.GetHeldEntity() as BaseProjectile)?.primaryMagazine.ammoType.shortname ?? null;
-                Ammo = item.GetHeldEntity() is BaseProjectile ? (item.GetHeldEntity() as BaseProjectile).primaryMagazine.contents :
-                               item.GetHeldEntity() is FlameThrower ? (item.GetHeldEntity() as FlameThrower).ammo : 0;
+
+                BaseEntity heldEntity = item.GetHeldEntity();
+                if (heldEntity)
+                {
+                    Ammotype = heldEntity is BaseProjectile ? (heldEntity as BaseProjectile).primaryMagazine.ammoType.shortname : null;
+                    Ammo = heldEntity is BaseProjectile ? (heldEntity as BaseProjectile).primaryMagazine.contents :
+                           heldEntity is FlameThrower ? (heldEntity as FlameThrower).ammo : 0;
+                }
 
                 Position = item.position;
                 Skin = item.skin;
@@ -3398,8 +3439,11 @@ namespace Oxide.Plugins
             public class InstanceData
             {
                 public int DataInt { get; set; }
+                
                 public int BlueprintTarget { get; set; }
+                
                 public int BlueprintAmount { get; set; }
+                
                 public uint SubEntityNetID { get; set; }
 
                 internal InstanceData() { }
