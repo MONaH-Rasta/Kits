@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.8"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.0.9"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -3156,7 +3156,9 @@ namespace Oxide.Plugins
                 MaxCondition = item.maxCondition;
 
                 Frequency = ItemModAssociatedEntity<PagerEntity>.GetAssociatedEntity(item)?.GetFrequency() ?? -1;
-                //Instance = new ItemData.InstanceData(item);
+
+                if (item.instanceData != null && item.instanceData.blueprintTarget != 0)
+                    BlueprintShortname = ItemManager.FindItemDefinition(item.instanceData.blueprintTarget).shortname;
 
                 Contents = item.contents?.itemList.Select(item1 => new ItemData(item1)).ToArray();
             }
