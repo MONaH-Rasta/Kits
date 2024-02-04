@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "Reneb", "3.2.93", ResourceId = 668)]
+    [Info("Kits", "Reneb", "3.2.95", ResourceId = 668)]
     class Kits : RustPlugin
     {
         readonly int playerLayer = LayerMask.GetMask("Player (Server)");
@@ -42,10 +42,10 @@ namespace Oxide.Plugins
                 if (ImageLibrary)
                     AddImage(BackgroundURL, "Background", (ulong)ResourceId);
             foreach (var player in BasePlayer.activePlayerList)
-                OnPlayerInit(player);
+                OnPlayerConnected(player);
         }
 
-        void OnPlayerInit(BasePlayer player)
+        void OnPlayerConnected(BasePlayer player)
         {
             BindKeys(player);
         }
@@ -798,7 +798,7 @@ namespace Oxide.Plugins
             {
                 foreach (var mod in mods)
                 {
-                    item.contents.AddItem(BuildItem(mod, 1, 0, 0).info, 1);
+                    BuildItem(mod, 1, 0, 0).MoveToContainer(item.contents);
                 }
             }
             return item;
