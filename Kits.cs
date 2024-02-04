@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.0.10"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.0.11"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -52,8 +52,6 @@ namespace Oxide.Plugins
         {
             if (Configuration.WipeData)
                 playerData.Wipe();
-
-            kitData.OnServerWiped();
         }
 
         private void OnServerSave() => SavePlayerData();
@@ -168,6 +166,14 @@ namespace Oxide.Plugins
             if (!ignoreAuthCost && kit.RequiredAuth > 0 && player.net.connection.authLevel < kit.RequiredAuth)
                 return Message("Error.CanClaim.Auth", player.userID);
 
+            if (Configuration.AdminIgnoreRestrictions && IsAdmin(player))
+            {
+                if (!kit.HasSpaceForItems(player))
+                    return Message("Error.CanClaim.InventorySpace", player.userID);
+
+                return null;
+            }
+            
             if (!string.IsNullOrEmpty(kit.RequiredPermission) && !permission.UserHasPermission(player.UserIDString, kit.RequiredPermission))
                 return Message("Error.CanClaim.Permission", player.userID);
 
@@ -352,7 +358,11 @@ namespace Oxide.Plugins
             return raycastHit.collider.GetComponentInParent<BasePlayer>();            
         }
 
-        private static double CurrentTime => DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1, 0, 0, 0)).TotalSeconds;
+        private static DateTime Epoch { get; set; } = new DateTime(1970, 1, 1, 0, 0, 0);
+
+        private static double CurrentTime => DateTime.UtcNow.Subtract(Epoch).TotalSeconds;
+
+        private static double LastWipeTime { get; set; } = SaveRestore.SaveCreatedTime.Subtract(Epoch).TotalSeconds;
         #endregion
 
         #region ImageLibrary        
@@ -628,38 +638,47 @@ namespace Oxide.Plugins
             double cooldown = playerUsageData.GetCooldownRemaining(kit.Name);
             int currentUses = playerUsageData.GetKitUses(kit.Name);
 
-            if (!string.IsNullOrEmpty(kit.RequiredPermission) && !permission.UserHasPermission(player.UserIDString, kit.RequiredPermission))
+            if (Configuration.AdminIgnoreRestrictions && IsAdmin(player))
             {
-                buttonText = Message("UI.NeedsPermission", player.userID);
-                buttonColor = Configuration.Menu.Disabled.Get;
-            }
-            else if (kit.Cooldown > 0 && cooldown > 0)
-            {
-                UI.Label(container, UI_MENU, string.Format(Message("UI.Cooldown", player.userID), FormatTime(cooldown)), 12,
-                    new UI4(position.xMin + 0.005f, position.yMin + 0.0475f, position.xMax - 0.005f, position.yMax - 0.3f), TextAnchor.MiddleLeft);
-
-                buttonText = Message("UI.OnCooldown", player.userID);
-                buttonColor = Configuration.Menu.Disabled.Get;
-            }
-            else if (kit.MaximumUses > 0 && currentUses >= kit.MaximumUses)
-            {
-                buttonText = Message("UI.MaximumUses", player.userID);
-                buttonColor = Configuration.Menu.Disabled.Get;
-            }
-            else if (kit.Cost > 0)
-            {
-                UI.Label(container, UI_MENU, string.Format(Message("UI.Cost", player.userID), kit.Cost, Message($"Cost.{_costType}", player.userID)), 12,
-                    new UI4(position.xMin + 0.005f, position.yMin + 0.0475f, position.xMax - 0.005f, position.yMax - 0.3f), TextAnchor.MiddleLeft);
-
-                buttonText = Message("UI.Purchase", player.userID);
+                buttonText = Message("UI.Redeem", player.userID);
                 buttonColor = Configuration.Menu.Color2.Get;
                 buttonCommand = $"kits.gridview redeem {CommandSafe(kit.Name)} {page} {npcId}";
             }
             else
             {
-                buttonText = Message("UI.Redeem", player.userID);
-                buttonColor = Configuration.Menu.Color2.Get;
-                buttonCommand = $"kits.gridview redeem {CommandSafe(kit.Name)} {page} {npcId}";
+                if (!string.IsNullOrEmpty(kit.RequiredPermission) && !permission.UserHasPermission(player.UserIDString, kit.RequiredPermission))
+                {
+                    buttonText = Message("UI.NeedsPermission", player.userID);
+                    buttonColor = Configuration.Menu.Disabled.Get;
+                }
+                else if (kit.Cooldown > 0 && cooldown > 0)
+                {
+                    UI.Label(container, UI_MENU, string.Format(Message("UI.Cooldown", player.userID), FormatTime(cooldown)), 12,
+                        new UI4(position.xMin + 0.005f, position.yMin + 0.0475f, position.xMax - 0.005f, position.yMax - 0.3f), TextAnchor.MiddleLeft);
+
+                    buttonText = Message("UI.OnCooldown", player.userID);
+                    buttonColor = Configuration.Menu.Disabled.Get;
+                }
+                else if (kit.MaximumUses > 0 && currentUses >= kit.MaximumUses)
+                {
+                    buttonText = Message("UI.MaximumUses", player.userID);
+                    buttonColor = Configuration.Menu.Disabled.Get;
+                }
+                else if (kit.Cost > 0)
+                {
+                    UI.Label(container, UI_MENU, string.Format(Message("UI.Cost", player.userID), kit.Cost, Message($"Cost.{_costType}", player.userID)), 12,
+                        new UI4(position.xMin + 0.005f, position.yMin + 0.0475f, position.xMax - 0.005f, position.yMax - 0.3f), TextAnchor.MiddleLeft);
+
+                    buttonText = Message("UI.Purchase", player.userID);
+                    buttonColor = Configuration.Menu.Color2.Get;
+                    buttonCommand = $"kits.gridview redeem {CommandSafe(kit.Name)} {page} {npcId}";
+                }
+                else
+                {
+                    buttonText = Message("UI.Redeem", player.userID);
+                    buttonColor = Configuration.Menu.Color2.Get;
+                    buttonCommand = $"kits.gridview redeem {CommandSafe(kit.Name)} {page} {npcId}";
+                }
             }
 
             UI.Button(container, UI_MENU, buttonColor, buttonText, 14, 
@@ -688,8 +707,12 @@ namespace Oxide.Plugins
 
             UI.Button(container, UI_MENU, Configuration.Menu.Color3.Get, "<b>×</b>", 20, new UI4(0.9575f, 0.9375f, 0.99f, 0.9825f), $"kits.gridview page 0 {npcId}");
 
-            if (IsAdmin(player))
+            bool isAdmin;
+            if (isAdmin = IsAdmin(player))
+            {
+                UI.Button(container, UI_MENU, Configuration.Menu.Color2.Get, Message("UI.EditKit", player.userID), 14, new UI4(0.7525f, 0.9375f, 0.845f, 0.9825f), $"kits.edit {CommandSafe(name)}");
                 UI.Button(container, UI_MENU, Configuration.Menu.Color2.Get, Message("UI.CreateNew", player.userID), 14, new UI4(0.85f, 0.9375f, 0.9525f, 0.9825f), "kits.create");
+            }
 
             PlayerData.PlayerUsageData playerUsageData = playerData[player.userID];
 
@@ -703,7 +726,13 @@ namespace Oxide.Plugins
 
             AddTitleSperator(container, i += 1, Message("UI.Details", player.userID));
             AddLabelField(container, i += 1, Message("UI.Name", player.userID), kit.Name);
-            AddLabelField(container, i += 1, Message("UI.Description", player.userID), kit.Description);
+
+            if (!string.IsNullOrEmpty(kit.Description)) 
+            {
+                int descriptionSlots = Mathf.Min(Mathf.CeilToInt(((float)kit.Description.Length / 38f) / 1.25f), 4);
+                AddLabelField(container, i += 1, Message("UI.Description", player.userID), kit.Description, descriptionSlots - 1);
+                i += descriptionSlots - 1;
+            }
 
             string buttonText = string.Empty;
             string buttonCommand = string.Empty;
@@ -758,14 +787,14 @@ namespace Oxide.Plugins
                 buttonText = Message("UI.NeedsPermission", player.userID);
                 buttonColor = Configuration.Menu.Disabled.Get;
             }
-
-            if (!string.IsNullOrEmpty(kit.CopyPasteFile))
+            
+            if (i <= 16 && !string.IsNullOrEmpty(kit.CopyPasteFile))
             {
                 AddTitleSperator(container, i += 1, Message("UI.CopyPaste", player.userID));
                 AddLabelField(container, i += 1, Message("UI.FileName", player.userID), kit.CopyPasteFile);
             }
 
-            if (string.IsNullOrEmpty(buttonText))
+            if ((Configuration.AdminIgnoreRestrictions && isAdmin) || string.IsNullOrEmpty(buttonText))
             {
                 buttonText = Message("UI.Redeem", player.userID);
                 buttonCommand = $"kits.gridview redeem {CommandSafe(kit.Name)} {page} {npcId}";
@@ -849,21 +878,21 @@ namespace Oxide.Plugins
             // Kit Options
             AddTitleSperator(container, 0, Message("UI.Details", player.userID));
             AddInputField(container, 1, Message("UI.Name", player.userID), "name", kit.Name);
-            AddInputField(container, 2, Message("UI.Description", player.userID), "description", kit.Description);
-            AddInputField(container, 3, Message("UI.IconURL", player.userID), "image", kit.KitImage);
+            AddInputField(container, 2, Message("UI.Description", player.userID), "description", kit.Description, 3);
+            AddInputField(container, 6, Message("UI.IconURL", player.userID), "image", kit.KitImage);
 
-            AddTitleSperator(container, 4, Message("UI.UsageAuthority", player.userID));
-            AddInputField(container, 5, Message("UI.Permission", player.userID), "permission", kit.RequiredPermission);
-            AddInputField(container, 6, Message("UI.AuthLevel", player.userID), "authLevel", kit.RequiredAuth);
-            AddToggleField(container, 7, Message("UI.IsHidden", player.userID), "isHidden", kit.IsHidden);
+            AddTitleSperator(container, 7, Message("UI.UsageAuthority", player.userID));
+            AddInputField(container, 8, Message("UI.Permission", player.userID), "permission", kit.RequiredPermission);
+            AddInputField(container, 9, Message("UI.AuthLevel", player.userID), "authLevel", kit.RequiredAuth);
+            AddToggleField(container, 10, Message("UI.IsHidden", player.userID), "isHidden", kit.IsHidden);
 
-            AddTitleSperator(container, 8, Message("UI.Usage", player.userID));
-            AddInputField(container, 9, Message("UI.MaxUses", player.userID), "maximumUses", kit.MaximumUses);
-            AddInputField(container, 10, Message("UI.CooldownSeconds", player.userID), "cooldown", kit.Cooldown);
-            AddInputField(container, 11, Message("UI.PurchaseCost", player.userID), "cost", kit.Cost);
+            AddTitleSperator(container, 11, Message("UI.Usage", player.userID));
+            AddInputField(container, 12, Message("UI.MaxUses", player.userID), "maximumUses", kit.MaximumUses);
+            AddInputField(container, 13, Message("UI.CooldownSeconds", player.userID), "cooldown", kit.Cooldown);
+            AddInputField(container, 14, Message("UI.PurchaseCost", player.userID), "cost", kit.Cost);
 
-            AddTitleSperator(container, 12, Message("UI.CopyPaste", player.userID));
-            AddInputField(container, 13, Message("UI.FileName", player.userID), "copyPaste", kit.CopyPasteFile);
+            AddTitleSperator(container, 15, Message("UI.CopyPaste", player.userID));
+            AddInputField(container, 16, Message("UI.FileName", player.userID), "copyPaste", kit.CopyPasteFile);
 
             // Kit Items
             CreateKitLayout(player, container, kit);
@@ -886,21 +915,24 @@ namespace Oxide.Plugins
 
         private void AddInputField(CuiElementContainer container, int index, string title, string fieldName, object currentValue, int additionalHeight = 0)
         {
-            float yMin = GetVerticalPos(index + additionalHeight, 0.88f);
+            float yMin = GetVerticalPos(index, 0.88f);
             float yMax = yMin + EDITOR_ELEMENT_HEIGHT;
 
+            if (additionalHeight != 0)
+                yMin = GetVerticalPos(index + additionalHeight, 0.88f);
+
             UI.Panel(container, UI_MENU, Configuration.Menu.Color4.Get, new UI4(0.005f, yMin, 0.175f, yMax));
-            UI.Label(container, UI_MENU, title, 14, new UI4(0.01f, yMin, 0.175f, yMax), TextAnchor.MiddleLeft);
+            UI.Label(container, UI_MENU, title, 12, new UI4(0.01f, yMin, 0.175f, yMax - 0.0075f), TextAnchor.UpperLeft);
 
             UI.Panel(container, UI_MENU, ICON_BACKGROUND_COLOR, new UI4(0.175f, yMin, 0.495f, yMax));
 
             string label = GetInputLabel(currentValue);
             if (!string.IsNullOrEmpty(label))
             {
-                UI.Label(container, UI_MENU, label, 14, new UI4(0.18f, yMin, 0.495f, yMax), TextAnchor.MiddleLeft);
-                UI.Button(container, UI_MENU, Configuration.Menu.Color3.Get, "X", 14, new UI4(0.47f, yMin, 0.495f, yMax), $"kits.clear {fieldName}");
+                UI.Label(container, UI_MENU, label, 12, new UI4(0.18f, yMin, 0.47f, yMax - 0.0075f), TextAnchor.UpperLeft);
+                UI.Button(container, UI_MENU, Configuration.Menu.Color3.Get, "X", 14, new UI4(0.47f, yMax - EDITOR_ELEMENT_HEIGHT, 0.495f, yMax), $"kits.clear {fieldName}");
             }
-            else UI.Input(container, UI_MENU, string.Empty, 14, $"kits.creator {fieldName}", new UI4(0.18f, yMin, 0.495f, yMax));
+            else UI.Input(container, UI_MENU, string.Empty, 12, $"kits.creator {fieldName}", new UI4(0.18f, yMin, 0.495f, yMax - 0.0075f), TextAnchor.UpperLeft);
         }
 
         private void AddTitleSperator(CuiElementContainer container, int index, string title)
@@ -912,16 +944,19 @@ namespace Oxide.Plugins
             UI.Label(container, UI_MENU, title, 14, new UI4(0.01f, yMin, 0.495f, yMax), TextAnchor.MiddleLeft);
         }
 
-        private void AddLabelField(CuiElementContainer container, int index, string title, string value)
+        private void AddLabelField(CuiElementContainer container, int index, string title, string value, int additionalHeight = 0)
         {
             float yMin = GetVerticalPos(index, 0.88f);
             float yMax = yMin + EDITOR_ELEMENT_HEIGHT;
 
+            if (additionalHeight != 0)
+                yMin = GetVerticalPos(index + additionalHeight, 0.88f);
+
             UI.Panel(container, UI_MENU, Configuration.Menu.Color4.Get, new UI4(0.005f, yMin, 0.175f, yMax));
-            UI.Label(container, UI_MENU, title, 12, new UI4(0.01f, yMin, 0.175f, yMax), TextAnchor.MiddleLeft);
+            UI.Label(container, UI_MENU, title, 12, new UI4(0.01f, yMin, 0.175f, yMax - 0.0075f), TextAnchor.UpperLeft);
 
             UI.Panel(container, UI_MENU, ICON_BACKGROUND_COLOR, new UI4(0.175f, yMin, 0.495f, yMax));
-            UI.Label(container, UI_MENU, value, 12, new UI4(0.18f, yMin, 0.495f, yMax), TextAnchor.MiddleLeft);
+            UI.Label(container, UI_MENU, value, 12, new UI4(0.18f, yMin, 0.495f, yMax - 0.0075f), TextAnchor.UpperLeft);
         }
 
         private void AddToggleField(CuiElementContainer container, int index, string title, string fieldName, bool currentValue)
@@ -1064,6 +1099,29 @@ namespace Oxide.Plugins
             if (IsAdmin(player))
             {
                 _kitCreators[player.userID] = new KitData.Kit();
+                OpenKitsEditor(player);
+            }
+        }
+
+        [ConsoleCommand("kits.edit")]
+        private void ccmdEditKit(ConsoleSystem.Arg arg)
+        {
+            BasePlayer player = arg.Player();
+            if (player == null)
+                return;
+
+            if (IsAdmin(player))
+            {
+                string name = CommandSafe(arg.GetString(0), true);
+
+                KitData.Kit editKit;
+                if (!kitData.Find(name, out editKit))
+                {
+                    player.ChatMessage(string.Format(Message("Chat.Error.DoesntExist", player.userID), name));
+                    return;
+                }
+
+                _kitCreators[player.userID] = KitData.Kit.CloneOf(editKit);
                 OpenKitsEditor(player);
             }
         }
@@ -1404,7 +1462,7 @@ namespace Oxide.Plugins
                 UI.Button(container, panel, "0 0 0 0", string.Empty, 0, dimensions, command);
             }
 
-            public static void Input(CuiElementContainer container, string panel, string text, int size, string command, UI4 dimensions)
+            public static void Input(CuiElementContainer container, string panel, string text, int size, string command, UI4 dimensions, TextAnchor anchor = TextAnchor.MiddleLeft)
             {
                 container.Add(new CuiElement
                 {
@@ -1414,7 +1472,7 @@ namespace Oxide.Plugins
                     {
                         new CuiInputFieldComponent
                         {
-                            Align = TextAnchor.MiddleLeft,                            
+                            Align = anchor,                            
                             CharsLimit = 300,
                             Command = command + text,
                             FontSize = size,
@@ -1664,6 +1722,7 @@ namespace Oxide.Plugins
                     }
 
                     playerData.Wipe();
+                    SavePlayerData();
                     player.ChatMessage(Message("Chat.ResetPlayers", player.userID));
 
                     return;
@@ -2361,6 +2420,9 @@ namespace Oxide.Plugins
             [JsonProperty(PropertyName = "Show kits with permissions assigned to players without the permission")]
             public bool ShowPermissionKits { get; set; }
 
+            [JsonProperty(PropertyName = "Players with the admin permission ignore usage restrictions")]
+            public bool AdminIgnoreRestrictions { get; set; }
+
             [JsonProperty(PropertyName = "Autokits ordered by priority")]
             public List<string> AutoKits { get; set; }
 
@@ -2574,9 +2636,6 @@ namespace Oxide.Plugins
             [JsonProperty]
             private Dictionary<string, Kit> _kits = new Dictionary<string, Kit>(StringComparer.OrdinalIgnoreCase);
 
-            [JsonProperty]
-            private double _lastWipeTime;
-                        
             internal Kit this[string key]
             {
                 get
@@ -2677,12 +2736,10 @@ namespace Oxide.Plugins
                 plugin?.CallHook("ImportImageList", "Kits", loadOrder, 0UL, true, null);
             }
 
-            internal void OnServerWiped() => _lastWipeTime = CurrentTime;
-
             internal bool IsOnWipeCooldown(int seconds, out int remaining)
             {
                 double currentTime = CurrentTime;
-                double nextUseTime = _lastWipeTime + seconds;
+                double nextUseTime = LastWipeTime + seconds;
 
                 if (currentTime < nextUseTime)
                 {
@@ -3342,6 +3399,7 @@ namespace Oxide.Plugins
             ["UI.ClearItems"] = "Clear Items",
             ["UI.CopyInv"] = "Copy From Inventory",
             ["UI.CreateNew"] = "Create New",
+            ["UI.EditKit"] = "Edit Kit",
             ["UI.NeedsPermission"] = "VIP Kit",
             ["UI.NoKitsAvailable"] = "There are currently no kits available",
 
