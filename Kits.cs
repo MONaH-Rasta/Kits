@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.4.1"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.4.3"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -71,6 +71,9 @@ namespace Oxide.Plugins
                 return;
 
             if ((Interface.Oxide.CallDeprecatedHook("canRedeemKit", "CanRedeemKit", _deprecatedHookTime, player) ?? Interface.Oxide.CallHook("CanRedeemKit", player)) != null)
+                return;
+
+            if (Interface.Oxide.CallHook("CanRedeemAutoKit", player) != null)
                 return;
 
             if (Configuration.AllowAutoToggle && !playerData[player.userID].ClaimAutoKits)
@@ -400,7 +403,7 @@ namespace Oxide.Plugins
         {
             if (kitData.Find(name, out KitData.Kit kit))
             {
-                List<string> items = Facepunch.Pool.GetList<string>();
+                List<string> items = Facepunch.Pool.Get<List<string>>();
                 for (int i1 = 0; i1 < kit.BeltItems.Length; i1++)
                 {
                     ItemData itemData = kit.BeltItems[i1];
@@ -435,7 +438,7 @@ namespace Oxide.Plugins
                 }
 
                 string[] array = items.ToArray();
-                Facepunch.Pool.FreeList(ref items);
+                Facepunch.Pool.FreeUnmanaged(ref items);
 
                 return array;
             }
@@ -600,7 +603,7 @@ namespace Oxide.Plugins
 
         private void CreateGridView(BasePlayer player, CuiElementContainer container, int page = 0, ulong npcId = 0UL)
         {
-            List<KitData.Kit> list = Facepunch.Pool.GetList<KitData.Kit>();
+            List<KitData.Kit> list = Facepunch.Pool.Get<List<KitData.Kit>>();
 
             GetUserValidKits(player, list, npcId);
 
@@ -625,7 +628,7 @@ namespace Oxide.Plugins
             if (max < list.Count)
                 UI.Button(container, UI_MENU, Configuration.Menu.Color1.Get, "▶\n\n▶\n\n▶", 16, new UI4(0.97f, 0.35f, 0.995f, 0.58f), $"kits.gridview page {page + 1} {npcId}");
 
-            Facepunch.Pool.FreeList(ref list);
+            Facepunch.Pool.FreeUnmanaged(ref list);
         }
 
         private void CreateKitEntry(BasePlayer player, PlayerData.PlayerUsageData playerUsageData, CuiElementContainer container, KitData.Kit kit, int index, int page, ulong npcId)
@@ -1576,11 +1579,11 @@ namespace Oxide.Plugins
                         player.ChatMessage(string.Format(Message("Chat.KitList", player.userID), kitData.Keys.ToSentence()));
                     else
                     {
-                        List<KitData.Kit> kits = Facepunch.Pool.GetList<KitData.Kit>();
+                        List<KitData.Kit> kits = Facepunch.Pool.Get<List<KitData.Kit>>();
                         GetUserValidKits(player, kits);
 
                         player.ChatMessage(string.Format(Message("Chat.KitList", player.userID), kits.Select((KitData.Kit kit) => kit.Name).ToSentence()));
-                        Facepunch.Pool.FreeList(ref kits);
+                        Facepunch.Pool.FreeUnmanaged(ref kits);
                     }  
                     return;
 
@@ -1940,9 +1943,9 @@ namespace Oxide.Plugins
 
         private void TryConvertItems(ref KitData.Kit kit, List<OldKitItem> items)
         {
-            List<ItemData> wear = Facepunch.Pool.GetList<ItemData>();
-            List<ItemData> belt = Facepunch.Pool.GetList<ItemData>();
-            List<ItemData> main = Facepunch.Pool.GetList<ItemData>();
+            List<ItemData> wear = Facepunch.Pool.Get<List<ItemData>>();
+            List<ItemData> belt = Facepunch.Pool.Get<List<ItemData>>();
+            List<ItemData> main = Facepunch.Pool.Get<List<ItemData>>();
 
             ConvertItems(ref wear, items.Where((OldKitItem oldKitItem) => oldKitItem.container == "wear"));
             ConvertItems(ref belt, items.Where((OldKitItem oldKitItem) => oldKitItem.container == "belt"));
@@ -1952,9 +1955,9 @@ namespace Oxide.Plugins
             kit.BeltItems = belt.ToArray();
             kit.MainItems = main.ToArray();
 
-            Facepunch.Pool.FreeList(ref wear);
-            Facepunch.Pool.FreeList(ref belt);
-            Facepunch.Pool.FreeList(ref main);
+            Facepunch.Pool.FreeUnmanaged(ref wear);
+            Facepunch.Pool.FreeUnmanaged(ref belt);
+            Facepunch.Pool.FreeUnmanaged(ref main);
         } 
 
         private ItemDefinition FindItemDefinition(int itemID)
@@ -2006,7 +2009,7 @@ namespace Oxide.Plugins
                 
                 if (oldKitItem.mods?.Count > 0)                
                 {
-                    List<ItemData> contents = Facepunch.Pool.GetList<ItemData>();
+                    List<ItemData> contents = Facepunch.Pool.Get<List<ItemData>>();
 
                     oldKitItem.mods.ForEach((int itemId) =>
                     {
@@ -2023,7 +2026,7 @@ namespace Oxide.Plugins
 
                     itemData.Contents = contents.ToArray();
 
-                    Facepunch.Pool.FreeList(ref contents);
+                    Facepunch.Pool.FreeUnmanaged(ref contents);
                 }
 
                 list.Add(itemData);
@@ -2918,7 +2921,7 @@ namespace Oxide.Plugins
                 
                 internal ItemData GetBackpackSlot()
                 {
-                    for (var i = 0; i < WearItems.Length; i++)
+                    for (int i = 0; i < WearItems.Length; i++)
                     {
                         ItemData itemData = WearItems[i];
                         if (itemData.Position == 7)
@@ -2941,7 +2944,7 @@ namespace Oxide.Plugins
 
                 internal void GiveItemsTo(BasePlayer player)
                 {
-                    List<ItemData> list = Facepunch.Pool.GetList<ItemData>();
+                    List<ItemData> list = Facepunch.Pool.Get<List<ItemData>>();
 
                     GiveItems(MainItems, player.inventory.containerMain, ref list);
                     GiveItems(WearItems, player.inventory.containerWear, ref list, true);
@@ -2955,7 +2958,7 @@ namespace Oxide.Plugins
                             item.Drop(player.GetDropPosition(), player.GetDropVelocity());                                                
                     }
 
-                    Facepunch.Pool.FreeList(ref list);
+                    Facepunch.Pool.FreeUnmanaged(ref list);
                 }
 
                 private void GiveItems(ItemData[] items, ItemContainer container, ref List<ItemData> leftOverItems, bool isWearContainer = false)
