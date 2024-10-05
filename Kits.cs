@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.4.3"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.4.4"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -1724,6 +1724,38 @@ namespace Oxide.Plugins
                     player.ChatMessage(Message("Chat.ResetPlayers", player.userID));
 
                     return;
+                
+                case "resetuses":
+                    if (!isAdmin)
+                    {
+                        player.ChatMessage(Message("Chat.Error.NotAdmin", player.userID));
+                        return;
+                    }
+                    
+                    if (args.Length == 0)
+                    {
+                        player.ChatMessage(Message("Chat.ResetUses.Error.Args", player.userID));
+                        return;
+                    }
+
+                    if (!kitData.Find(args[1], out KitData.Kit kit))
+                    {
+                        player.ChatMessage(Message("Chat.ResetUses.Error.Kit", player.userID));
+                        return;
+                    }
+
+                    BasePlayer targetPlayer = FindPlayer(args[0]);
+                    if (!targetPlayer)
+                    {
+                        player.ChatMessage(Message("Chat.ResetUses.Error.Player", player.userID));
+                        return;
+                    }
+
+                    playerData[targetPlayer.userID].ClearKitUses(kit.Name);
+                    
+                    player.ChatMessage(string.Format(Message("Chat.ResetUses.Success", player.userID), targetPlayer.displayName, kit.Name));
+                    
+                    return;
 
                 case "autokit":
                     if (Configuration.AllowAutoToggle)
@@ -1757,15 +1789,16 @@ namespace Oxide.Plugins
             {
                 SendReply(arg, "kit list - List all kits");
                 SendReply(arg, "kit delete <kitname> - Delete the specified kit");
-                SendReply(arg, "kit give <playername> <kitname> - Give the specified kit to the specified playuer");
+                SendReply(arg, "kit give <playername> <kitname> - Give the specified kit to the specified player");
                 SendReply(arg, "kit reset - Reset player usage data");
+                SendReply(arg, "kit resetuses <playername> <kitname> - Reset the usage data for the specified kit for the specified player");
                 return;
             }
 
             switch (arg.Args[0].ToLower())
             {               
                 case "list":
-                    SendReply(arg, string.Format("Kit List: {0}", kitData.Keys.ToSentence()));
+                    SendReply(arg, $"Kit List: {kitData.Keys.ToSentence()}");
                     return;
 
                 case "remove":
@@ -1778,13 +1811,13 @@ namespace Oxide.Plugins
 
                     if (!kitData.Find(arg.Args[1], out KitData.Kit deleteKit))
                     {
-                        SendReply(arg, string.Format("The kit {0} does not exist", arg.Args[1]));
+                        SendReply(arg, $"The kit {arg.Args[1]} does not exist");
                         return;
                     }
 
                     kitData.Remove(deleteKit);
                     SaveKitData();
-                    SendReply(arg, string.Format("You have deleted the kit {0}", arg.Args[1]));
+                    SendReply(arg, $"You have deleted the kit {arg.Args[1]}");
 
                     return;
 
@@ -1809,13 +1842,38 @@ namespace Oxide.Plugins
                     }
 
                     GiveKit(target, giveKit);
-                    SendReply(arg, string.Format("You have given {0} the kit {1}", target.displayName, arg.Args[2]));
+                    SendReply(arg, $"You have given {target.displayName} the kit {arg.Args[2]}");
                     return;
                 
                 case "reset":                    
                     playerData.Wipe();
                     SavePlayerData();
                     SendReply(arg, "You have wiped player usage data");
+                    return;
+                
+                case "resetuses":
+                    if (arg.Args.Length == 0)
+                    {
+                        SendReply(player, "kit resetuses <playername> <kitname>");
+                        return;
+                    }
+
+                    if (!kitData.Find(arg.Args[1], out KitData.Kit kit))
+                    {
+                        SendReply(player, "Unable to find the specified kit");
+                        return;
+                    }
+
+                    BasePlayer targetPlayer = FindPlayer(arg.Args[0]);
+                    if (!targetPlayer)
+                    {
+                        SendReply(player, "Unable to find the specified player");
+                        return;
+                    }
+
+                    playerData[targetPlayer.userID].ClearKitUses(kit.Name);
+                    
+                    SendReply(player, $"You have reset the uses for the kit {kit.Name} for the player {targetPlayer.displayName}");
                     return;
                 
                 default:
@@ -1842,6 +1900,7 @@ namespace Oxide.Plugins
                 player.ChatMessage(Message("Chat.Help.7", player.userID));
                 player.ChatMessage(Message("Chat.Help.8", player.userID));
                 player.ChatMessage(Message("Chat.Help.10", player.userID));
+                player.ChatMessage(Message("Chat.Help.11", player.userID));
             }
         }
         #endregion
@@ -3128,6 +3187,15 @@ namespace Oxide.Plugins
 
                 playerUsageData.OnKitClaimed(kit);
             }
+            
+            internal bool ClearKitUses(BasePlayer player, KitData.Kit kit)
+            {
+                if (!_players.TryGetValue(player.userID, out PlayerUsageData playerUsageData))
+                    return false;
+
+                playerUsageData.ClearKitUses(kit.Name);
+                return true;
+            }
 
             internal void Wipe() => _players.Clear();
 
@@ -3172,6 +3240,15 @@ namespace Oxide.Plugins
                         return;
 
                     kitUsageData.TotalUses = amount;
+                }
+
+                internal void ClearKitUses(string name)
+                {
+                    if (!_usageData.TryGetValue(name, out KitUsageData kitUsageData))
+                        return;
+
+                    kitUsageData.TotalUses = 0;
+                    kitUsageData.NextUseTime = 0;
                 }
 
                 internal void OnKitClaimed(KitData.Kit kit)
@@ -3474,6 +3551,7 @@ namespace Oxide.Plugins
             ["Chat.Help.7"] = "<color=#ce422b>/kit give <player name or ID> <kit name></color> - Give the target player the specified kit",
             ["Chat.Help.8"] = "<color=#ce422b>/kit givenpc <kit name></color> - Give the NPC you are looking at the specified kit",
             ["Chat.Help.10"] = "<color=#ce422b>/kit reset</color> - Wipe's all player usage data",
+            ["Chat.Help.11"] = "<color=#ce422b>/kit resetuses <player ID or name> <kit></color> - Wipes the kit usage for the specified kit and player",
 
             ["Chat.Error.NotAdmin"] = "You must either be a admin, or have the admin permission to use that command",
             ["Chat.Error.NoKit"] = "You must specify a kit name",
@@ -3489,6 +3567,10 @@ namespace Oxide.Plugins
             ["Chat.ResetPlayers"] = "You have wiped player usage data",
             ["Chat.AutoKit.True"] = "enabled",
             ["Chat.AutoKit.False"] = "disabled",
+            ["Chat.ResetUses.Error.Args"] = "<color=#ce422b>/kit resetuses <player ID or name> <kit></color>",
+            ["Chat.ResetUses.Error.Kit"] = "No kit found with the specified name",
+            ["Chat.ResetUses.Error.Player"] = "No player found with the specified name or ID",
+            ["Chat.ResetUses.Success"] = "You have reset the kit uses of {0} for the kit {1}",
 
             ["UI.Title"] = "Kits",
             ["UI.Title.Editor"] = "Kit Editor",
