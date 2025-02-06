@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.4.4"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.4.5"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -1732,19 +1732,19 @@ namespace Oxide.Plugins
                         return;
                     }
                     
-                    if (args.Length == 0)
+                    if (args.Length <= 1)
                     {
                         player.ChatMessage(Message("Chat.ResetUses.Error.Args", player.userID));
                         return;
                     }
 
-                    if (!kitData.Find(args[1], out KitData.Kit kit))
+                    if (!kitData.Find(args[2], out KitData.Kit kit))
                     {
                         player.ChatMessage(Message("Chat.ResetUses.Error.Kit", player.userID));
                         return;
                     }
 
-                    BasePlayer targetPlayer = FindPlayer(args[0]);
+                    BasePlayer targetPlayer = FindPlayer(args[1]);
                     if (!targetPlayer)
                     {
                         player.ChatMessage(Message("Chat.ResetUses.Error.Player", player.userID));
