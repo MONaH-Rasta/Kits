@@ -1,10 +1,11 @@
-﻿using Newtonsoft.Json;
+﻿using Facepunch;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Oxide.Core;
 using Oxide.Core.Configuration;
 using Oxide.Core.Libraries;
-using Oxide.Game.Rust.Cui;
 using Oxide.Core.Plugins;
+using Oxide.Game.Rust.Cui;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -13,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.4.5"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.4.6"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -305,7 +306,7 @@ namespace Oxide.Plugins
             {
                 if (Configuration.NPCKitMenu.TryGetValue(npcId, out ConfigData.NPCKit npcKit))
                 {
-                    npcKit.Kits.ForEach((string kitName) =>
+                    npcKit.Kits.ForEach(kitName =>
                     {
                         if (kitData.Find(kitName, out KitData.Kit kit))
                         {
@@ -322,7 +323,7 @@ namespace Oxide.Plugins
             }
             else
             {
-                kitData.ForEach((KitData.Kit kit) =>
+                kitData.ForEach(kit =>
                 {
                     if (kit.IsHidden && !isAdmin)
                         return;
@@ -340,9 +341,9 @@ namespace Oxide.Plugins
 
         private bool IsAdmin(BasePlayer player) => permission.UserHasPermission(player.UserIDString, ADMIN_PERMISSION);
 
-        private BasePlayer FindPlayer(string partialNameOrID) => BasePlayer.allPlayerList.FirstOrDefault<BasePlayer>((BasePlayer x) => x.UserIDString.Equals(partialNameOrID) ||            
-                                                                                                    x.displayName.Equals(partialNameOrID, StringComparison.OrdinalIgnoreCase) ||
-                                                                                                    x.displayName.Contains(partialNameOrID, CompareOptions.OrdinalIgnoreCase));
+        private BasePlayer FindPlayer(string partialNameOrID) => BasePlayer.allPlayerList.FirstOrDefault(x => x.UserIDString.Equals(partialNameOrID) ||            
+                                                                                                                x.displayName.Equals(partialNameOrID, StringComparison.OrdinalIgnoreCase) ||
+                                                                                                                x.displayName.Contains(partialNameOrID, CompareOptions.OrdinalIgnoreCase));
 
         private BasePlayer RaycastPlayer(BasePlayer player)
         {
@@ -390,7 +391,7 @@ namespace Oxide.Plugins
         public int KitMax(string name) => GetKitMaxUses(name);
 
         [HookMethod("KitCooldown")]
-        public double KitCooldown(string name) => (double)GetKitCooldown(name);
+        public double KitCooldown(string name) => GetKitCooldown(name);
 
         [HookMethod("PlayerKitMax")]
         public int PlayerKitMax(ulong playerId, string name) => GetPlayerKitUses(playerId, name);
@@ -401,49 +402,42 @@ namespace Oxide.Plugins
         [HookMethod("GetKitContents")]
         public string[] GetKitContents(string name)
         {
-            if (kitData.Find(name, out KitData.Kit kit))
+            if (!kitData.Find(name, out KitData.Kit kit))
+                return null;
+            
+            List<string> items = Pool.Get<List<string>>();
+            
+            void Append(List<string> items, ItemData[] itemData)
             {
-                List<string> items = Facepunch.Pool.Get<List<string>>();
-                for (int i1 = 0; i1 < kit.BeltItems.Length; i1++)
+                for (int i = 0; i < itemData.Length; i++)
                 {
-                    ItemData itemData = kit.BeltItems[i1];
-                    string itemstring = $"{itemData.ItemID}_{itemData.Amount}";
+                    ItemData item = itemData[i];
+                    string itemstring = $"{item.ItemID}_{item.Amount}";
 
-                    for (int i2 = 0; i2 < itemData.Contents?.Length; i2++)
-                        itemstring += $"_{itemData.Contents[i2].ItemID}";
+                    if (item.Contents is { Length: > 0 })
+                    {
+                        for (int j = 0; j < item.Contents.Length; j++)
+                            itemstring += $"_{item.Contents[j].ItemID}";
+                    }
+
+                    if (item.Container != null && item.Container.contents.Count > 0)
+                    {
+                        for (int j = 0; j < item.Container.contents.Count; j++)
+                            itemstring += $"_{item.Container.contents[j].ItemID}";
+                    }
 
                     items.Add(itemstring);
                 }
-
-                for (int i1 = 0; i1 < kit.WearItems.Length; i1++)
-                {
-                    ItemData itemData = kit.WearItems[i1];
-                    string itemstring = $"{itemData.ItemID}_{itemData.Amount}";
-
-                    for (int i2 = 0; i2 < itemData.Contents?.Length; i2++)
-                        itemstring += $"_{itemData.Contents[i2].ItemID}";
-
-                    items.Add(itemstring);
-                }
-
-                for (int i1 = 0; i1 < kit.MainItems.Length; i1++)
-                {
-                    ItemData itemData = kit.MainItems[i1];
-                    string itemstring = $"{itemData.ItemID}_{itemData.Amount}";
-
-                    for (int i2 = 0; i2 < itemData.Contents?.Length; i2++)
-                        itemstring += $"_{itemData.Contents[i2].ItemID}";
-
-                    items.Add(itemstring);
-                }
-
-                string[] array = items.ToArray();
-                Facepunch.Pool.FreeUnmanaged(ref items);
-
-                return array;
             }
+            
+            Append(items, kit.BeltItems);
+            Append(items, kit.MainItems);
+            Append(items, kit.WearItems);
 
-            return null;
+            string[] array = items.ToArray();
+            Pool.FreeUnmanaged(ref items);
+
+            return array;
         }
 
         [HookMethod("GetKitInfo")]
@@ -492,8 +486,18 @@ namespace Oxide.Plugins
                 };
 
                 item["mods"] = new JArray();
-                for (int i1 = 0; i1 < itemData.Contents?.Length; i1++)
-                    (item["mods"] as JArray).Add(itemData.Contents[i1].ItemID);
+
+                if (itemData.Contents is { Length: > 0 })
+                {
+                    for (int i1 = 0; i1 < itemData.Contents?.Length; i1++)
+                        (item["mods"] as JArray).Add(itemData.Contents[i1].ItemID);
+                }
+
+                if (itemData.Container != null && itemData.Container.contents.Count > 0)
+                {
+                    for (int i3 = 0; i3 < itemData.Container.contents.Count; i3++)
+                        (item["mods"] as JArray).Add(itemData.Container.contents[i3].ItemID);
+                }
 
                 array.Add(item);
             }
@@ -603,7 +607,7 @@ namespace Oxide.Plugins
 
         private void CreateGridView(BasePlayer player, CuiElementContainer container, int page = 0, ulong npcId = 0UL)
         {
-            List<KitData.Kit> list = Facepunch.Pool.Get<List<KitData.Kit>>();
+            List<KitData.Kit> list = Pool.Get<List<KitData.Kit>>();
 
             GetUserValidKits(player, list, npcId);
 
@@ -628,7 +632,7 @@ namespace Oxide.Plugins
             if (max < list.Count)
                 UI.Button(container, UI_MENU, Configuration.Menu.Color1.Get, "▶\n\n▶\n\n▶", 16, new UI4(0.97f, 0.35f, 0.995f, 0.58f), $"kits.gridview page {page + 1} {npcId}");
 
-            Facepunch.Pool.FreeUnmanaged(ref list);
+            Pool.FreeUnmanaged(ref list);
         }
 
         private void CreateKitEntry(BasePlayer player, PlayerData.PlayerUsageData playerUsageData, CuiElementContainer container, KitData.Kit kit, int index, int page, ulong npcId)
@@ -742,7 +746,7 @@ namespace Oxide.Plugins
 
             if (!string.IsNullOrEmpty(kit.Description)) 
             {
-                int descriptionSlots = Mathf.Min(Mathf.CeilToInt(((float)kit.Description.Length / 38f) / 1.25f), 4);
+                int descriptionSlots = Mathf.Min(Mathf.CeilToInt((kit.Description.Length / 38f) / 1.25f), 4);
                 AddLabelField(container, i += 1, Message("UI.Description", player.userID), kit.Description, descriptionSlots - 1);
                 i += descriptionSlots - 1;
             }
@@ -1045,7 +1049,7 @@ namespace Oxide.Plugins
 
             internal UI4 Get(int index)
             {
-                int rowNumber = index == 0 ? 0 : Mathf.FloorToInt((float)index / (float)_columns);
+                int rowNumber = index == 0 ? 0 : Mathf.FloorToInt(index / (float)_columns);
                 int columnNumber = index - (rowNumber * _columns);
 
                 float offsetX = _xOffset + (_width * columnNumber) + (_xSpacing * columnNumber);
@@ -1100,8 +1104,6 @@ namespace Oxide.Plugins
                         else OpenKitGrid(player, arg.GetInt(2), arg.GetULong(3));
                     }
                     return;
-                default:
-                    break;
             }            
         }
         #endregion
@@ -1270,9 +1272,6 @@ namespace Oxide.Plugins
                 case "authLevel":
                     kit.RequiredAuth = 0;
                     break;
-                
-                default:                    
-                    break;
             }
 
             OpenKitsEditor(player);
@@ -1324,35 +1323,35 @@ namespace Oxide.Plugins
                     break;
                 case "cost":
                     {
-                        if (!TryConvertValue<int>(value, out int intValue))
+                        if (!TryConvertValue(value, out int intValue))
                             CreateMenuPopup(player, Message("EditKit.Number", player.userID));
                         else kit.Cost = intValue;
                     }
                     break;
                 case "cooldown":
                     {
-                        if (!TryConvertValue<int>(value, out int intValue))
+                        if (!TryConvertValue(value, out int intValue))
                             CreateMenuPopup(player, Message("EditKit.Number", player.userID));
                         else kit.Cooldown = intValue;
                     }
                     break;
                 case "maximumUses":
                     {
-                        if (!TryConvertValue<int>(value, out int intValue))
+                        if (!TryConvertValue(value, out int intValue))
                             CreateMenuPopup(player, Message("EditKit.Number", player.userID));
                         else kit.MaximumUses = intValue;
                     }
                     break;
                 case "authLevel":
                     {
-                        if (!TryConvertValue<int>(value, out int intValue))
+                        if (!TryConvertValue(value, out int intValue))
                             CreateMenuPopup(player, Message("EditKit.Number", player.userID));
                         else kit.RequiredAuth = Mathf.Clamp(intValue, 0, 2);                        
                     }
                     break;
                 case "isHidden":
                     {
-                        if (!TryConvertValue<bool>(value, out bool boolValue))
+                        if (!TryConvertValue(value, out bool boolValue))
                             CreateMenuPopup(player, Message("EditKit.Bool", player.userID));
                         else kit.IsHidden = boolValue;
                     }
@@ -1387,7 +1386,7 @@ namespace Oxide.Plugins
         {
             public static CuiElementContainer Container(string panel, string color, UI4 dimensions, bool blur = true, string parent = "Overlay")
             {
-                CuiElementContainer container = new CuiElementContainer()
+                CuiElementContainer container = new CuiElementContainer
                 {
                     {
                         new CuiPanel
@@ -1405,9 +1404,9 @@ namespace Oxide.Plugins
 
             public static CuiElementContainer Popup(string panel, string text, int size, UI4 dimensions, TextAnchor align = TextAnchor.MiddleCenter, string parent = "Overlay")
             {
-                CuiElementContainer container = UI.Container(panel, "0 0 0 0", dimensions);
+                CuiElementContainer container = Container(panel, "0 0 0 0", dimensions);
 
-                UI.Label(container, panel, text, size, UI4.Full, align);
+                Label(container, panel, text, size, UI4.Full, align);
 
                 return container;
             }
@@ -1445,9 +1444,9 @@ namespace Oxide.Plugins
 
             public static void Button(CuiElementContainer container, string panel, string color, string png, UI4 dimensions, string command)
             {
-                UI.Panel(container, panel, color, dimensions);
-                UI.Image(container, panel, png, dimensions);
-                UI.Button(container, panel, "0 0 0 0", string.Empty, 0, dimensions, command);
+                Panel(container, panel, color, dimensions);
+                Image(container, panel, png, dimensions);
+                Button(container, panel, "0 0 0 0", string.Empty, 0, dimensions, command);
             }
 
             public static void Input(CuiElementContainer container, string panel, string text, int size, string command, UI4 dimensions, TextAnchor anchor = TextAnchor.MiddleLeft)
@@ -1503,12 +1502,12 @@ namespace Oxide.Plugins
 
             public static void Toggle(CuiElementContainer container, string panel, string boxColor, int fontSize, UI4 dimensions, string command, bool isOn)
             {
-                UI.Panel(container, panel, boxColor, dimensions);
+                Panel(container, panel, boxColor, dimensions);
 
                 if (isOn)
-                    UI.Label(container, panel, "✔", fontSize, dimensions);
+                    Label(container, panel, "✔", fontSize, dimensions);
 
-                UI.Button(container, panel, "0 0 0 0", string.Empty, 0, dimensions, command);
+                Button(container, panel, "0 0 0 0", string.Empty, 0, dimensions, command);
             }
 
             public static string Color(string hexColor, float alpha)
@@ -1579,11 +1578,11 @@ namespace Oxide.Plugins
                         player.ChatMessage(string.Format(Message("Chat.KitList", player.userID), kitData.Keys.ToSentence()));
                     else
                     {
-                        List<KitData.Kit> kits = Facepunch.Pool.Get<List<KitData.Kit>>();
+                        List<KitData.Kit> kits = Pool.Get<List<KitData.Kit>>();
                         GetUserValidKits(player, kits);
 
-                        player.ChatMessage(string.Format(Message("Chat.KitList", player.userID), kits.Select((KitData.Kit kit) => kit.Name).ToSentence()));
-                        Facepunch.Pool.FreeUnmanaged(ref kits);
+                        player.ChatMessage(string.Format(Message("Chat.KitList", player.userID), kits.Select(kit => kit.Name).ToSentence()));
+                        Pool.FreeUnmanaged(ref kits);
                     }  
                     return;
 
@@ -1852,19 +1851,19 @@ namespace Oxide.Plugins
                     return;
                 
                 case "resetuses":
-                    if (arg.Args.Length == 0)
+                    if (arg.Args.Length != 3)
                     {
                         SendReply(player, "kit resetuses <playername> <kitname>");
                         return;
                     }
 
-                    if (!kitData.Find(arg.Args[1], out KitData.Kit kit))
+                    if (!kitData.Find(arg.Args[2], out KitData.Kit kit))
                     {
                         SendReply(player, "Unable to find the specified kit");
                         return;
                     }
 
-                    BasePlayer targetPlayer = FindPlayer(arg.Args[0]);
+                    BasePlayer targetPlayer = FindPlayer(arg.Args[1]);
                     if (!targetPlayer)
                     {
                         SendReply(player, "Unable to find the specified player");
@@ -1971,7 +1970,7 @@ namespace Oxide.Plugins
                 foreach (OldKit oldKit in oldStoredData.Kits.Values)
                 {
                     Debug.Log($"Converting Kit {oldKit.name} with {oldKit.items.Count} items");
-                    KitData.Kit kit = new KitData.Kit()
+                    KitData.Kit kit = new KitData.Kit
                     {
                         Name = oldKit.name,
                         Description = oldKit.description ?? string.Empty,
@@ -2002,21 +2001,21 @@ namespace Oxide.Plugins
 
         private void TryConvertItems(ref KitData.Kit kit, List<OldKitItem> items)
         {
-            List<ItemData> wear = Facepunch.Pool.Get<List<ItemData>>();
-            List<ItemData> belt = Facepunch.Pool.Get<List<ItemData>>();
-            List<ItemData> main = Facepunch.Pool.Get<List<ItemData>>();
+            List<ItemData> wear = Pool.Get<List<ItemData>>();
+            List<ItemData> belt = Pool.Get<List<ItemData>>();
+            List<ItemData> main = Pool.Get<List<ItemData>>();
 
-            ConvertItems(ref wear, items.Where((OldKitItem oldKitItem) => oldKitItem.container == "wear"));
-            ConvertItems(ref belt, items.Where((OldKitItem oldKitItem) => oldKitItem.container == "belt"));
-            ConvertItems(ref main, items.Where((OldKitItem oldKitItem) => oldKitItem.container == "main"));
+            ConvertItems(ref wear, items.Where(oldKitItem => oldKitItem.container == "wear"));
+            ConvertItems(ref belt, items.Where(oldKitItem => oldKitItem.container == "belt"));
+            ConvertItems(ref main, items.Where(oldKitItem => oldKitItem.container == "main"));
 
             kit.WearItems = wear.ToArray();
             kit.BeltItems = belt.ToArray();
             kit.MainItems = main.ToArray();
 
-            Facepunch.Pool.FreeUnmanaged(ref wear);
-            Facepunch.Pool.FreeUnmanaged(ref belt);
-            Facepunch.Pool.FreeUnmanaged(ref main);
+            Pool.FreeUnmanaged(ref wear);
+            Pool.FreeUnmanaged(ref belt);
+            Pool.FreeUnmanaged(ref main);
         } 
 
         private ItemDefinition FindItemDefinition(int itemID)
@@ -2043,7 +2042,7 @@ namespace Oxide.Plugins
                     continue;
                 }
 
-                ItemData itemData = new ItemData()
+                ItemData itemData = new ItemData
                 {
                     Shortname = itemDefinition.shortname,
                     Amount = oldKitItem.amount,
@@ -2068,9 +2067,9 @@ namespace Oxide.Plugins
                 
                 if (oldKitItem.mods?.Count > 0)                
                 {
-                    List<ItemData> contents = Facepunch.Pool.Get<List<ItemData>>();
+                    List<ItemData> contents = Pool.Get<List<ItemData>>();
 
-                    oldKitItem.mods.ForEach((int itemId) =>
+                    oldKitItem.mods.ForEach(itemId =>
                     {
                         itemDefinition = FindItemDefinition(itemId);
                         if (itemDefinition != null)
@@ -2085,7 +2084,7 @@ namespace Oxide.Plugins
 
                     itemData.Contents = contents.ToArray();
 
-                    Facepunch.Pool.FreeUnmanaged(ref contents);
+                    Pool.FreeUnmanaged(ref contents);
                 }
 
                 list.Add(itemData);
@@ -2537,9 +2536,9 @@ namespace Oxide.Plugins
         {
             bool hasChanges = false;
             
-            kitData.ForEach((KitData.Kit kit) =>
+            kitData.ForEach(kit =>
             {
-                Action<ItemData[]> action = ((ItemData[] items) =>
+                Action<ItemData[]> action = (items =>
                 {
                     for (int i = 0; i < items.Length; i++)
                     {
@@ -2705,7 +2704,7 @@ namespace Oxide.Plugins
                     ["ExampleKitName"] = 3600,
                     ["OtherKitName"] = 600
                 },
-                CopyPasteParams = new string[] { "deployables", "true", "inventories", "true" },
+                CopyPasteParams = new[] { "deployables", "true", "inventories", "true" },
                 Menu = new ConfigData.MenuOptions
                 {
                     Panel = new ConfigData.UIColor { Hex = "#232323", Alpha = 1f },
@@ -3003,7 +3002,7 @@ namespace Oxide.Plugins
 
                 internal void GiveItemsTo(BasePlayer player)
                 {
-                    List<ItemData> list = Facepunch.Pool.Get<List<ItemData>>();
+                    List<ItemData> list = Pool.Get<List<ItemData>>();
 
                     GiveItems(MainItems, player.inventory.containerMain, ref list);
                     GiveItems(WearItems, player.inventory.containerWear, ref list, true);
@@ -3013,11 +3012,11 @@ namespace Oxide.Plugins
                     {
                         Item item = CreateItem(list[i]);
 
-                        if (!MoveToIdealContainer(player.inventory, item) && !item.MoveToContainer(player.inventory.containerMain, -1, true) && !item.MoveToContainer(player.inventory.containerBelt, -1, true))                        
+                        if (!MoveToIdealContainer(player.inventory, item) && !item.MoveToContainer(player.inventory.containerMain) && !item.MoveToContainer(player.inventory.containerBelt))                        
                             item.Drop(player.GetDropPosition(), player.GetDropVelocity());                                                
                     }
 
-                    Facepunch.Pool.FreeUnmanaged(ref list);
+                    Pool.FreeUnmanaged(ref list);
                 }
 
                 private void GiveItems(ItemData[] items, ItemContainer container, ref List<ItemData> leftOverItems, bool isWearContainer = false)
@@ -3041,7 +3040,7 @@ namespace Oxide.Plugins
                             else
                             {
                                 leftOverItems.Add(itemData);
-                                item.Remove(0f);
+                                item.Remove();
                             }
                         }
                     }
@@ -3079,15 +3078,15 @@ namespace Oxide.Plugins
                     if (item.info.stackable > 1)
                     {
                         if (playerInventory.containerBelt != null && playerInventory.containerBelt.FindItemByItemID(item.info.itemid) != null)                        
-                            return item.MoveToContainer(playerInventory.containerBelt, -1, true);
+                            return item.MoveToContainer(playerInventory.containerBelt);
                         
 
                         if (playerInventory.containerMain != null && playerInventory.containerMain.FindItemByItemID(item.info.itemid) != null)                        
-                            return item.MoveToContainer(playerInventory.containerMain, -1, true);
+                            return item.MoveToContainer(playerInventory.containerMain);
                         
                     }
                     if (item.info.HasFlag(ItemDefinition.Flag.NotStraightToBelt) || !item.info.isUsable)                    
-                        return item.MoveToContainer(playerInventory.containerMain, -1, true);                    
+                        return item.MoveToContainer(playerInventory.containerMain);                    
 
                     return item.MoveToContainer(playerInventory.containerBelt, -1, false); 
                 }
@@ -3288,19 +3287,20 @@ namespace Oxide.Plugins
         private static Item CreateItem(ItemData itemData)
         {
             Item item = ItemManager.CreateByItemID(itemData.ItemID, itemData.Amount, itemData.Skin);
-            item.condition = itemData.Condition;
-            item.maxCondition = itemData.MaxCondition;
-
+            
             if (!string.IsNullOrEmpty(itemData.DisplayName))
                 item.name = itemData.DisplayName;
 
             if (!string.IsNullOrEmpty(itemData.Text))
                 item.text = itemData.Text;
             
+            item._condition = itemData.Condition;
+            item._maxCondition = itemData.MaxCondition;
+            
             if (itemData.Frequency > 0)
             {
                 ItemModRFListener rfListener = item.info.GetComponentInChildren<ItemModRFListener>();
-                if (rfListener != null)
+                if (rfListener)
                     (BaseNetworkable.serverEntities.Find(item.instanceData.subEntity) as PagerEntity)?.ChangeFrequency(itemData.Frequency);  
             }
 
@@ -3318,7 +3318,7 @@ namespace Oxide.Plugins
             }
 
             FlameThrower flameThrower = item.GetHeldEntity() as FlameThrower;
-            if (flameThrower != null)
+            if (flameThrower)
                 flameThrower.ammo = itemData.Ammo;
 
             if (itemData.Contents != null)
@@ -3329,13 +3329,30 @@ namespace Oxide.Plugins
                     if (newContent != null)
                     {
                         if (!newContent.MoveToContainer(item.contents))
-                            newContent.Remove(0f);
+                            newContent.Remove();
                     }
                 }
             }
             
+            if (itemData.Container != null)
+            {
+                if (item.contents == null)
+                {
+                    ItemModContainerArmorSlot armorSlot = FindItemMod<ItemModContainerArmorSlot>(item);
+                    if (armorSlot)
+                        armorSlot.CreateAtCapacity(itemData.Container.slots, item);
+                    else
+                    {
+                        item.contents = Pool.Get<ItemContainer>();
+                        item.contents.ServerInitialize(item, itemData.Container.slots);
+                        item.contents.GiveUID();
+                    }
+                }
+                itemData.Container.Load(item.contents);
+            }
+            
             BaseProjectile weapon = item.GetHeldEntity() as BaseProjectile;
-            if (weapon != null)
+            if (weapon)
             {
                 weapon.DelayedModsChanged();
                 
@@ -3350,10 +3367,21 @@ namespace Oxide.Plugins
             return item;
         }
 
+        private static T FindItemMod<T>(Item item) where T : ItemMod
+        {
+            foreach (ItemMod itemMod in item.info.itemMods)
+            {
+                if (itemMod is T mod)
+                    return mod;
+            }
+
+            return null;
+        }
+
         public class ItemData
         {
             public string Shortname { get; set; }
-            
+
             public string DisplayName { get; set; }
 
             public ulong Skin { get; set; }
@@ -3373,22 +3401,27 @@ namespace Oxide.Plugins
             public int Frequency { get; set; }
 
             public string BlueprintShortname { get; set; }
-            
+
             public string Text { get; set; }
-
+            
+            /// <summary>
+            /// Deprecated, replaced by serializing the item container instead of just the items in it
+            /// </summary>
             public ItemData[] Contents { get; set; }
+            
+            public ItemContainer Container { get; set; }
 
 
             [JsonIgnore]
-            private int _itemId = 0;
+            private int _itemId;
 
             [JsonIgnore]
-            private int _blueprintItemId = 0;
+            private int _blueprintItemId;
 
             [JsonIgnore]
             private JObject _jObject;
 
-           
+
             [JsonIgnore]
             internal int ItemID
             {
@@ -3436,15 +3469,23 @@ namespace Oxide.Plugins
                             ["Contents"] = new JArray()
                         };
 
-                        for (int i = 0; i < Contents?.Length; i++)                        
+                        for (int i = 0; i < Contents?.Length; i++)
                             (_jObject["Contents"] as JArray).Add(Contents[i].ToJObject);
+
+                        if (Container != null && Container.contents.Count > 0)
+                        {
+                            for (int i = 0; i < Container.contents.Count; i++)
+                                (_jObject["Contents"] as JArray).Add(Container.contents[i].ToJObject);
+                        }
                     }
 
                     return _jObject;
                 }
             }
 
-            internal ItemData() { }
+            internal ItemData()
+            {
+            }
 
             internal ItemData(Item item)
             {
@@ -3458,7 +3499,7 @@ namespace Oxide.Plugins
                 {
                     Ammotype = heldEntity is BaseProjectile projectile ? projectile.primaryMagazine.ammoType.shortname : null;
                     Ammo = heldEntity is BaseProjectile baseProjectile ? baseProjectile.primaryMagazine.contents :
-                           heldEntity is FlameThrower thrower ? thrower.ammo : 0;
+                        heldEntity is FlameThrower thrower ? thrower.ammo : 0;
                 }
 
                 Position = item.position;
@@ -3472,20 +3513,26 @@ namespace Oxide.Plugins
                 if (item.instanceData != null && item.instanceData.blueprintTarget != 0)
                     BlueprintShortname = ItemManager.FindItemDefinition(item.instanceData.blueprintTarget).shortname;
 
-                Contents = item.contents?.itemList.Select(item1 => new ItemData(item1)).ToArray();
+                // Deprecated
+                //Contents = item.contents?.itemList.Select(item1 => new ItemData(item1)).ToArray();
+
+                if (item.contents != null)
+                    Container = new ItemContainer(item.contents);
             }
 
             public class InstanceData
             {
                 public int DataInt { get; set; }
-                
+
                 public int BlueprintTarget { get; set; }
-                
+
                 public int BlueprintAmount { get; set; }
-                
+
                 public uint SubEntityNetID { get; set; }
 
-                internal InstanceData() { }
+                internal InstanceData()
+                {
+                }
 
                 internal InstanceData(Item item)
                 {
@@ -3511,9 +3558,114 @@ namespace Oxide.Plugins
                     item.MarkDirty();
                 }
 
-                internal bool IsValid => DataInt != 0 || BlueprintAmount != 0 || BlueprintTarget != 0;                
+                internal bool IsValid => DataInt != 0 || BlueprintAmount != 0 || BlueprintTarget != 0;
+            }
+
+            public class ItemContainer
+            {
+                public int slots;
+                public float temperature;
+                public int flags;
+                public int allowedContents;
+                public int maxStackSize;
+                public List<int> allowedItems;
+                public List<int> availableSlots;
+                public int volume;
+                public List<ItemData> contents;
+                
+                public ItemContainer(){}
+
+                public ItemContainer(global::ItemContainer container)
+                {
+                    contents = new List<ItemData>();
+                    slots = container.capacity;
+                    temperature = container.temperature;
+                    allowedContents = (int)container.allowedContents;
+                    
+                    if (container.HasLimitedAllowedItems)
+                    {
+                        allowedItems = new List<int>();
+                        for (int i = 0; i < container.onlyAllowedItems.Length; i++)
+                        {
+                            if (container.onlyAllowedItems[i])
+                            {
+                                allowedItems.Add(container.onlyAllowedItems[i].itemid);
+                            }
+                        }
+                    }
+
+                    flags = (int)container.flags;
+                    maxStackSize = container.maxStackSize;
+                    volume = container.containerVolume;
+                    
+                    if (container.availableSlots is { Count: > 0 })
+                    {
+                        availableSlots = new List<int>();
+                        for (int j = 0; j < container.availableSlots.Count; j++)
+                        {
+                            availableSlots.Add((int)container.availableSlots[j]);
+                        }
+                    }
+
+                    for (int k = 0; k < container.itemList.Count; k++)
+                    {
+                        Item item = container.itemList[k];
+                        if (item.IsValid())
+                        {
+                            contents.Add(new ItemData(item));
+                        }
+                    }
+                }
+
+                public void Load(global::ItemContainer itemContainer)
+                {
+                    itemContainer.capacity = slots;
+                    itemContainer.itemList = Pool.Get<List<Item>>();
+                    itemContainer.temperature = temperature;
+                    itemContainer.flags = (global::ItemContainer.Flag)flags;
+                    itemContainer.allowedContents = (global::ItemContainer.ContentsType)((allowedContents == 0) ? 1 : allowedContents);
+                    
+                    if (allowedItems is { Count: > 0 })
+                    {
+                        itemContainer.onlyAllowedItems = new ItemDefinition[allowedItems.Count];
+                        for (int i = 0; i < allowedItems.Count; i++)
+                        {
+                            itemContainer.onlyAllowedItems[i] = ItemManager.FindItemDefinition(allowedItems[i]);
+                        }
+                    }
+                    else
+                    {
+                        itemContainer.onlyAllowedItems = null;
+                    }
+
+                    itemContainer.maxStackSize = maxStackSize;
+                    itemContainer.containerVolume = volume;
+                    itemContainer.availableSlots.Clear();
+                    
+                    if (availableSlots != null)
+                    {
+                        for (int j = 0; j < availableSlots.Count; j++)
+                        {
+                            itemContainer.availableSlots.Add((ItemSlot)availableSlots[j]);
+                        }
+                    }
+
+                    foreach (ItemData itemData in contents)
+                    {
+                        Item item = CreateItem(itemData);
+                        if (item != null)
+                        {
+                            item.parent = itemContainer;
+                            item.position = itemData.Position;
+                            itemContainer.Insert(item);
+                        }
+                    }
+
+                    itemContainer.dirty = true;
+                }
             }
         }
+
         #endregion
 
         #region Localization
