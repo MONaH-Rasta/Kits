@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.4.6"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.4.7"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -3653,15 +3653,14 @@ namespace Oxide.Plugins
                     foreach (ItemData itemData in contents)
                     {
                         Item item = CreateItem(itemData);
-                        if (item != null)
-                        {
-                            item.parent = itemContainer;
-                            item.position = itemData.Position;
-                            itemContainer.Insert(item);
-                        }
+                        if (item == null)
+                            continue;
+
+                        if (!item.MoveToContainer(itemContainer, itemData.Position) && !item.MoveToContainer(itemContainer))
+                            item.Remove();
                     }
 
-                    itemContainer.dirty = true;
+                    itemContainer.MarkDirty();
                 }
             }
         }
