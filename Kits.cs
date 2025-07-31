@@ -14,16 +14,20 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.4.7"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.4.8"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
         [PluginReference]
-        private Plugin CopyPaste, ImageLibrary, ServerRewards, Economics;
+        private Plugin CopyPaste, ImageLibrary, ServerRewards, Economics, PlayerDLCAPI;
 
         private DateTime _deprecatedHookTime = new DateTime(2021, 12, 31);
 
         private Hash<ulong, KitData.Kit> _kitCreators = new Hash<ulong, KitData.Kit>();
+        
+        private static Func<BasePlayer, ulong, bool> _canUseSkin;
+        private static Func<BasePlayer, int, int> _getRedirectedIfNotOwned;
+
 
         private const string ADMIN_PERMISSION = "kits.admin";
 
@@ -33,6 +37,9 @@ namespace Oxide.Plugins
         #region Oxide Hooks
         private void Loaded()
         {
+            _canUseSkin = CanUseSkin;
+            _getRedirectedIfNotOwned = GetRedirectedShortnameIfNotOwned;
+            
             LoadData();
 
             permission.RegisterPermission(ADMIN_PERMISSION, this);
@@ -56,6 +63,14 @@ namespace Oxide.Plugins
 
             if (Configuration.AutoKits.Count == 0)
                 Unsubscribe(nameof(OnPlayerRespawned));
+            
+            if (!Configuration.OwnedSkins)
+                Debug.LogWarning("[Kits] WARNING! As of August 7th 2025, granting access to paid skins that users do not own is against Rust's Terms of Service and can result in your server being delisted or worse.\n" +
+                                 "If you continue to allow users to use paid skins, you do so at your own risk!\n" +
+                                 "You can prevent users access to skins they do not own by enabling 'Only show/give players skins that they are allowed to use' in the config\n" +
+                                 "https://facepunch.com/legal/servers");
+            else if (!PlayerDLCAPI)
+                Debug.LogWarning("[Kits] - PlayerDLCAPI plugin is not loaded, skin ownership checks will not work!");
         }
 
         private void OnNewSave(string filename)
@@ -351,6 +366,31 @@ namespace Oxide.Plugins
                 return null;
 
             return raycastHit.collider.GetComponentInParent<BasePlayer>();            
+        }
+        
+        private bool CanUseSkin(BasePlayer player, ulong skinID)
+        {
+            if (skinID == 0UL)
+                return true;
+            
+            if (Configuration.NPCSkins && (player.IsNpc || !player.userID.IsSteamId()))
+                return Configuration.NPCSkins;
+
+            if (PlayerDLCAPI != null && Configuration.OwnedSkins)
+                return PlayerDLCAPI.Call<bool>("IsOwnedOrFreeSkin", player, skinID);
+            
+            return true;
+        }
+
+        private int GetRedirectedShortnameIfNotOwned(BasePlayer player, int itemId)
+        {
+            if (Configuration.NPCSkins && (player.IsNpc || !player.userID.IsSteamId()))
+                return itemId;
+            
+            if (PlayerDLCAPI != null && Configuration.OwnedSkins)
+                return PlayerDLCAPI.Call<int>("GetRedirectedItemIdIfNotOwned", player, itemId);
+            
+            return itemId;
         }
 
         private static DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0);
@@ -838,12 +878,12 @@ namespace Oxide.Plugins
             // Main Items
             UI.Panel(container, UI_MENU, Configuration.Menu.Color4.Get, new UI4(0.505f, 0.835f, 0.995f, 0.875f));
             UI.Label(container, UI_MENU, Message("UI.MainItems", player.userID), 14, new UI4(0.51f, 0.835f, 0.995f, 0.875f), TextAnchor.MiddleLeft);
-            CreateInventoryItems(container, MainAlign, kit.MainItems, 24);
+            CreateInventoryItems(player, container, MainAlign, kit.MainItems, 24);
             
             // Wear Items
             UI.Panel(container, UI_MENU, Configuration.Menu.Color4.Get, new UI4(0.505f, 0.365f, 0.995f, 0.405f));
             UI.Label(container, UI_MENU, Message("UI.WearItems", player.userID), 14, new UI4(0.51f, 0.365f, 0.995f, 0.405f), TextAnchor.MiddleLeft);
-            CreateInventoryItems(container, WearAlign, kit.WearItems, 8);
+            CreateInventoryItems(player, container, WearAlign, kit.WearItems, 8);
             
             /*// Backpack slot
             UI.Panel(container, UI_MENU, ICON_BACKGROUND_COLOR, new UI4(0.97f, 0.3675f, 0.9925f, 0.4025f));
@@ -854,11 +894,11 @@ namespace Oxide.Plugins
             // Belt Items
             UI.Panel(container, UI_MENU, Configuration.Menu.Color4.Get, new UI4(0.505f, 0.2225f, 0.995f, 0.2625f));
             UI.Label(container, UI_MENU, Message("UI.BeltItems", player.userID), 14, new UI4(0.51f, 0.2225f, 0.995f, 0.2625f), TextAnchor.MiddleLeft);
-            CreateInventoryItems(container, BeltAlign, kit.BeltItems, 6);            
+            CreateInventoryItems(player, container, BeltAlign, kit.BeltItems, 6);            
         }
 
         #region Item Layout Helpers
-        private void CreateInventoryItems(CuiElementContainer container, GridAlignment alignment, ItemData[] items, int capacity)
+        private void CreateInventoryItems(BasePlayer player, CuiElementContainer container, GridAlignment alignment, ItemData[] items, int capacity)
         {
             for (int i = 0; i < capacity; i++)
                 UI.Panel(container, UI_MENU, ICON_BACKGROUND_COLOR, alignment.Get(i));
@@ -869,12 +909,15 @@ namespace Oxide.Plugins
                 if (itemData.Position > capacity - 1)
                     continue;
 
+                int itemId = GetRedirectedShortnameIfNotOwned(player, itemData.ItemID);
+                ulong skinId = CanUseSkin(player, itemData.Skin) ? itemData.Skin : 0UL;
+
                 UI4 position = alignment.Get(itemData.Position);
 
-                UI.Image(container, UI_MENU, itemData.ItemID, itemData.Skin /*GetImage(itemData.Shortname, itemData.Skin)*/, position);
+                UI.Image(container, UI_MENU, itemId, skinId, position);
 
                 if (itemData.IsBlueprint && !string.IsNullOrEmpty(itemData.BlueprintShortname))
-                    UI.Image(container, UI_MENU, itemData.BlueprintItemID, 0UL /*GetImage(itemData.BlueprintShortname, 0UL)*/, position);
+                    UI.Image(container, UI_MENU, itemData.BlueprintItemID, 0UL, position);
 
                 if (itemData.Amount > 1)
                     UI.Label(container, UI_MENU, $"x{itemData.Amount}", 10, position, TextAnchor.LowerRight);
@@ -2587,6 +2630,12 @@ namespace Oxide.Plugins
             [JsonProperty(PropertyName = "Use the Kits UI menu")]
             public bool UseUI { get; set; }
 
+            [JsonProperty(PropertyName = "Only show/give players skins that they are allowed to use (requires PlayerDLCAPI)")]
+            public bool OwnedSkins { get; set; } = true;
+            
+            [JsonProperty(PropertyName = "Allow NPCs to use skins in kits")]
+            public bool NPCSkins { get; set; } = true;
+
             [JsonProperty(PropertyName = "Allow players to toggle auto-kits on spawn")]
             public bool AllowAutoToggle { get; set; }
 
@@ -3004,14 +3053,14 @@ namespace Oxide.Plugins
                 {
                     List<ItemData> list = Pool.Get<List<ItemData>>();
 
-                    GiveItems(MainItems, player.inventory.containerMain, ref list);
-                    GiveItems(WearItems, player.inventory.containerWear, ref list, true);
-                    GiveItems(BeltItems, player.inventory.containerBelt, ref list);
+                    GiveItems(player, MainItems, player.inventory.containerMain, ref list);
+                    GiveItems(player, WearItems, player.inventory.containerWear, ref list, true);
+                    GiveItems(player, BeltItems, player.inventory.containerBelt, ref list);
 
                     for (int i = 0; i < list.Count; i++)
                     {
-                        Item item = CreateItem(list[i]);
-
+                        Item item = CreateItem(list[i], player);
+                        
                         if (!MoveToIdealContainer(player.inventory, item) && !item.MoveToContainer(player.inventory.containerMain) && !item.MoveToContainer(player.inventory.containerBelt))                        
                             item.Drop(player.GetDropPosition(), player.GetDropVelocity());                                                
                     }
@@ -3019,7 +3068,7 @@ namespace Oxide.Plugins
                     Pool.FreeUnmanaged(ref list);
                 }
 
-                private void GiveItems(ItemData[] items, ItemContainer container, ref List<ItemData> leftOverItems, bool isWearContainer = false)
+                private void GiveItems(BasePlayer player, ItemData[] items, ItemContainer container, ref List<ItemData> leftOverItems, bool isWearContainer = false)
                 {
                     for (int i = 0; i < items.Length; i++)
                     {
@@ -3031,8 +3080,8 @@ namespace Oxide.Plugins
                             leftOverItems.Add(itemData);
                         else
                         {
-                            Item item = CreateItem(itemData);
-                            if (!isWearContainer || (isWearContainer && item.info.isWearable && CanWearItem(container, item)))
+                            Item item = CreateItem(itemData, player);
+                            if (!isWearContainer || (item.info.isWearable && CanWearItem(container, item)))
                             {
                                 item.position = itemData.Position;
                                 item.SetParent(container);
@@ -3077,11 +3126,11 @@ namespace Oxide.Plugins
                     
                     if (item.info.stackable > 1)
                     {
-                        if (playerInventory.containerBelt != null && playerInventory.containerBelt.FindItemByItemID(item.info.itemid) != null)                        
+                        if (playerInventory.containerBelt?.FindItemByItemID(item.info.itemid) != null)                        
                             return item.MoveToContainer(playerInventory.containerBelt);
                         
 
-                        if (playerInventory.containerMain != null && playerInventory.containerMain.FindItemByItemID(item.info.itemid) != null)                        
+                        if (playerInventory.containerMain?.FindItemByItemID(item.info.itemid) != null)                        
                             return item.MoveToContainer(playerInventory.containerMain);
                         
                     }
@@ -3094,7 +3143,7 @@ namespace Oxide.Plugins
                 private bool CanWearItem(ItemContainer containerWear, Item item)
                 {
                     ItemModWearable itemModWearable = item.info.GetComponent<ItemModWearable>();
-                    if (itemModWearable == null)                  
+                    if (!itemModWearable)                  
                         return false;
                     
                     for (int i = 0; i < containerWear.itemList.Count; i++)
@@ -3103,7 +3152,7 @@ namespace Oxide.Plugins
                         if (otherItem != null)
                         {
                             ItemModWearable otherModWearable = otherItem.info.GetComponent<ItemModWearable>();                          
-                            if (otherModWearable != null && !itemModWearable.CanExistWith(otherModWearable))
+                            if (otherModWearable && !itemModWearable.CanExistWith(otherModWearable))
                                 return false;
                         }
                     }
@@ -3284,9 +3333,18 @@ namespace Oxide.Plugins
         #endregion
 
         #region Serialized Items
-        private static Item CreateItem(ItemData itemData)
+        private static Item CreateItem(ItemData itemData, BasePlayer player = null)
         {
-            Item item = ItemManager.CreateByItemID(itemData.ItemID, itemData.Amount, itemData.Skin);
+            int itemId = itemData.ItemID;
+            ulong skin = itemData.Skin;
+
+            if (player)
+            {
+                itemId = _getRedirectedIfNotOwned(player, itemData.ItemID);
+                skin = _canUseSkin(player, itemData.Skin) ? itemData.Skin : 0UL;
+            }
+
+            Item item = ItemManager.CreateByItemID(itemId, itemData.Amount, skin);
             
             if (!string.IsNullOrEmpty(itemData.DisplayName))
                 item.name = itemData.DisplayName;
@@ -3325,7 +3383,7 @@ namespace Oxide.Plugins
             {
                 foreach (ItemData contentData in itemData.Contents)
                 {
-                    Item newContent = CreateItem(contentData);
+                    Item newContent = CreateItem(contentData, player);
                     if (newContent != null)
                     {
                         if (!newContent.MoveToContainer(item.contents))
