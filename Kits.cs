@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.4.8"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.4.9"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -38,7 +38,7 @@ namespace Oxide.Plugins
         private void Loaded()
         {
             _canUseSkin = CanUseSkin;
-            _getRedirectedIfNotOwned = GetRedirectedShortnameIfNotOwned;
+            _getRedirectedIfNotOwned = GetRedirectedItemIdIfNotOwned;
             
             LoadData();
 
@@ -382,7 +382,7 @@ namespace Oxide.Plugins
             return true;
         }
 
-        private int GetRedirectedShortnameIfNotOwned(BasePlayer player, int itemId)
+        private int GetRedirectedItemIdIfNotOwned(BasePlayer player, int itemId)
         {
             if (Configuration.NPCSkins && (player.IsNpc || !player.userID.IsSteamId()))
                 return itemId;
@@ -909,7 +909,7 @@ namespace Oxide.Plugins
                 if (itemData.Position > capacity - 1)
                     continue;
 
-                int itemId = GetRedirectedShortnameIfNotOwned(player, itemData.ItemID);
+                int itemId = GetRedirectedItemIdIfNotOwned(player, itemData.ItemID);
                 ulong skinId = CanUseSkin(player, itemData.Skin) ? itemData.Skin : 0UL;
 
                 UI4 position = alignment.Get(itemData.Position);
@@ -1837,7 +1837,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            switch (arg.Args[0].ToLower())
+            switch (arg.GetString(0).ToLower())
             {               
                 case "list":
                     SendReply(arg, $"Kit List: {kitData.Keys.ToSentence()}");
@@ -1851,7 +1851,7 @@ namespace Oxide.Plugins
                         return;
                     }
 
-                    if (!kitData.Find(arg.Args[1], out KitData.Kit deleteKit))
+                    if (!kitData.Find(arg.GetString(1), out KitData.Kit deleteKit))
                     {
                         SendReply(arg, $"The kit {arg.Args[1]} does not exist");
                         return;
@@ -1870,14 +1870,14 @@ namespace Oxide.Plugins
                         return;
                     }
 
-                    BasePlayer target = FindPlayer(arg.Args[1]);
+                    BasePlayer target = FindPlayer(arg.GetString(1));
                     if (target == null)
                     {
                         SendReply(arg, "Failed to find a player with the specified name or ID");
                         return;
                     }
 
-                    if (!kitData.Find(arg.Args[2], out KitData.Kit giveKit))
+                    if (!kitData.Find(arg.GetString(2), out KitData.Kit giveKit))
                     {
                         SendReply(arg, "The kit {0} does not exist");
                         return;
@@ -1900,13 +1900,13 @@ namespace Oxide.Plugins
                         return;
                     }
 
-                    if (!kitData.Find(arg.Args[2], out KitData.Kit kit))
+                    if (!kitData.Find(arg.GetString(2), out KitData.Kit kit))
                     {
                         SendReply(player, "Unable to find the specified kit");
                         return;
                     }
 
-                    BasePlayer targetPlayer = FindPlayer(arg.Args[1]);
+                    BasePlayer targetPlayer = FindPlayer(arg.GetString(1));
                     if (!targetPlayer)
                     {
                         SendReply(player, "Unable to find the specified player");
