@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Kits", "k1lly0u", "4.4.9"), Description("Create kits containing items that players can redeem")]
+    [Info("Kits", "k1lly0u", "4.4.10"), Description("Create kits containing items that players can redeem")]
     class Kits : RustPlugin
     {
         #region Fields
@@ -2762,8 +2762,8 @@ namespace Oxide.Plugins
                     Color2 = new ConfigData.UIColor { Hex = "#6a8b38", Alpha = 1f },
                     Color3 = new ConfigData.UIColor { Hex = "#d85540", Alpha = 1f },
                     Color4 = new ConfigData.UIColor { Hex = "#d08822", Alpha = 1f },
-                    DefaultKitURL = "https://chaoscode.io/oxide/Images/kiticon.png",
-                    MagnifyIconURL = "https://chaoscode.io/oxide/Images/magnifyingglass.png"
+                    DefaultKitURL = "https://files.rusthq.com/images/kiticon.png",
+                    MagnifyIconURL = "https://files.rusthq.com/images/magnifyingglass.png"
                 },
                 NPCKitMenu = new Hash<ulong, ConfigData.NPCKit>
                 {
@@ -2809,6 +2809,12 @@ namespace Oxide.Plugins
 
             if (Configuration.Version < new VersionNumber(4, 0, 12))
                 Configuration.Command = baseConfig.Command;
+
+            if (Configuration.Version < new VersionNumber(4, 4, 10))
+            {
+                Configuration.Menu.DefaultKitURL = Configuration.Menu.DefaultKitURL.Replace("https://chaoscode.io/oxide/Images", "https://files.rusthq.com/images");
+                Configuration.Menu.MagnifyIconURL = Configuration.Menu.MagnifyIconURL.Replace("https://chaoscode.io/oxide/Images", "https://files.rusthq.com/images");
+            }
 
             Configuration.Version = Version;
             PrintWarning("Config update completed!");
